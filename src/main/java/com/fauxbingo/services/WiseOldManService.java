@@ -30,12 +30,12 @@ public class WiseOldManService
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
 
-	public WiseOldManService(Client client, FauxBingoConfig config, OkHttpClient okHttpClient)
+	public WiseOldManService(Client client, FauxBingoConfig config, OkHttpClient okHttpClient, Gson gson)
 	{
 		this.client = client;
 		this.config = config;
 		this.okHttpClient = okHttpClient;
-		this.gson = new Gson();
+		this.gson = gson;
 	}
 
 	public void updatePlayer(String username)

@@ -10,6 +10,7 @@ import com.fauxbingo.overlay.TeamOverlay;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.WiseOldManService;
 import com.fauxbingo.trackers.XpTracker;
+import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -70,6 +71,9 @@ public class FauxBingoPlugin extends Plugin
 	@Inject
 	private TeamOverlay teamOverlay;
 
+	@Inject
+	private Gson gson;
+
 	private EventProcessor eventProcessor;
 	private WebhookService webhookService;
 	private WiseOldManService wiseOldManService;
@@ -90,7 +94,7 @@ public class FauxBingoPlugin extends Plugin
 
 		// Initialize services
 		webhookService = new WebhookService(okHttpClient);
-		wiseOldManService = new WiseOldManService(client, config, okHttpClient);
+		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
 		eventProcessor = new EventProcessor();
 
 		// Initialize trackers

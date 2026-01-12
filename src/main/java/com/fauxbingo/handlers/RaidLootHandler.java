@@ -12,8 +12,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.WidgetLoaded;
-import static net.runelite.api.widgets.WidgetID.CHAMBERS_OF_XERIC_REWARD_GROUP_ID;
-import static net.runelite.api.widgets.WidgetID.THEATRE_OF_BLOOD_REWARD_GROUP_ID;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.client.ui.DrawManager;
 import net.runelite.client.util.Text;
 
@@ -29,6 +28,9 @@ public class RaidLootHandler
 	private static final String COX_KIT_MESSAGE_TEXT = "Twisted Kit recipients: ";
 	private static final Pattern TOB_UNIQUE_MESSAGE_PATTERN = Pattern.compile("(.+) found something special: (.+)");
 	private static final Pattern KC_MESSAGE_PATTERN = Pattern.compile("([0-9]+)");
+
+	private static final int CoX_Interface_Id = InterfaceID.RAIDS_REWARDS;
+	private static final int ToB_Interface_Id = InterfaceID.TOB_CHESTS;
 
 	enum RaidType
 	{
@@ -109,7 +111,7 @@ public class RaidLootHandler
 
 				int groupId = event.getGroupId();
 
-				if (groupId == CHAMBERS_OF_XERIC_REWARD_GROUP_ID || groupId == THEATRE_OF_BLOOD_REWARD_GROUP_ID)
+				if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id)
 				{
 					handleRaidRewardWidget(groupId);
 				}
@@ -210,7 +212,7 @@ public class RaidLootHandler
 
 		String raidName = null;
 
-		if (groupId == CHAMBERS_OF_XERIC_REWARD_GROUP_ID)
+		if (groupId == CoX_Interface_Id)
 		{
 			if (raidType == RaidType.COX)
 			{
@@ -221,7 +223,7 @@ public class RaidLootHandler
 				raidName = "Chambers of Xeric Challenge Mode";
 			}
 		}
-		else if (groupId == THEATRE_OF_BLOOD_REWARD_GROUP_ID)
+		else if (groupId == ToB_Interface_Id)
 		{
 			if (raidType == RaidType.TOB)
 			{

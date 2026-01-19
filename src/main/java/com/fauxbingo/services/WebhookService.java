@@ -16,6 +16,8 @@ import javax.imageio.ImageIO;
 import lombok.Builder;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -34,6 +36,7 @@ public class WebhookService
 {
 	private final OkHttpClient okHttpClient;
 	private final ScheduledExecutorService executor;
+	private final Client client;
 	private final List<QueuedWebhook> queue = new ArrayList<>();
 	private ScheduledFuture<?> flushTask = null;
 
@@ -70,15 +73,16 @@ public class WebhookService
 		private final WebhookCategory category;
 	}
 
-	public WebhookService(OkHttpClient okHttpClient, ScheduledExecutorService executor)
+	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor)
 	{
+		this.client = client;
 		this.okHttpClient = okHttpClient;
 		this.executor = executor;
 	}
 
 	public void sendWebhook(String webhookUrls, String message, BufferedImage image)
 	{
-		sendWebhook(webhookUrls, message, image, null, WebhookCategory.MISC);
+		sendWebhook(webhookUrls, message, image, null, WebhookCategory.MISC, false);
 	}
 
 	/**
@@ -90,8 +94,28 @@ public class WebhookService
 	 * @param itemName Optional item name to use for bundling related events
 	 * @param category The category of the webhook for priority and bundling
 	 */
-	public synchronized void sendWebhook(String webhookUrls, String message, BufferedImage image, String itemName, WebhookCategory category)
+	public void sendWebhook(String webhookUrls, String message, BufferedImage image, String itemName, WebhookCategory category)
 	{
+		sendWebhook(webhookUrls, message, image, itemName, category, true);
+	}
+
+	/**
+	 * Send a webhook message to the configured URLs with an optional item name for bundling.
+	 *
+	 * @param webhookUrls Newline-separated list of webhook URLs
+	 * @param message The message content to send
+	 * @param image Optional screenshot to attach (can be null)
+	 * @param itemName Optional item name to use for bundling related events
+	 * @param category The category of the webhook for priority and bundling
+	 * @param checkGameState Whether to check if the player is logged in before sending
+	 */
+	public synchronized void sendWebhook(String webhookUrls, String message, BufferedImage image, String itemName, WebhookCategory category, boolean checkGameState)
+	{
+		if (checkGameState && client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+
 		if (webhookUrls == null || webhookUrls.isEmpty())
 		{
 			return;

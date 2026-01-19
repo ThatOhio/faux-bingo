@@ -87,15 +87,13 @@ public class FauxBingoPlugin extends Plugin
 	private ManualScreenshotHandler manualScreenshotHandler;
 	private XpTracker xpTracker;
 
-	private boolean shouldSendMessage = false;
-
 	@Override
 	protected void startUp() throws Exception
 	{
 		log.info("Faux Bingo started!");
 
 		// Initialize services
-		webhookService = new WebhookService(okHttpClient, executor);
+		webhookService = new WebhookService(client, okHttpClient, executor);
 		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
 		logService = new LogService(client, config, okHttpClient, gson, executor);
 		eventProcessor = new EventProcessor();
@@ -163,35 +161,30 @@ public class FauxBingoPlugin extends Plugin
 	@Subscribe
 	public void onNpcLootReceived(NpcLootReceived event)
 	{
-		if (!shouldSendMessage) return;
 		eventProcessor.processEvent(event);
 	}
 
 	@Subscribe
 	public void onPlayerLootReceived(PlayerLootReceived event)
 	{
-		if (!shouldSendMessage) return;
 		eventProcessor.processEvent(event);
 	}
 
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (!shouldSendMessage) return;
 		eventProcessor.processEvent(event);
 	}
 
 	@Subscribe
 	public void onScriptPreFired(ScriptPreFired event)
 	{
-		if (!shouldSendMessage) return;
 		eventProcessor.processEvent(event);
 	}
 
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
 	{
-		if (!shouldSendMessage) return;
 		eventProcessor.processEvent(event);
 	}
 
@@ -204,13 +197,9 @@ public class FauxBingoPlugin extends Plugin
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event)
 	{
-		if (event.getGameState() == GameState.LOGIN_SCREEN)
+		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.LOGGING_IN)
 		{
 			resetState();
-		}
-		else
-		{
-			shouldSendMessage = true;
 		}
 
 		// Pass event to XP tracker
@@ -242,8 +231,6 @@ public class FauxBingoPlugin extends Plugin
 
 	private void resetState()
 	{
-		shouldSendMessage = false;
-
 		if (collectionLogHandler != null)
 		{
 			collectionLogHandler.resetState();

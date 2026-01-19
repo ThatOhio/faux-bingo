@@ -7,6 +7,8 @@ import java.util.concurrent.TimeUnit;
 import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -24,6 +26,9 @@ import static org.mockito.Mockito.*;
 public class WebhookServiceTest
 {
     @Mock
+    private Client client;
+
+    @Mock
     private OkHttpClient okHttpClient;
 
     @Mock
@@ -40,9 +45,31 @@ public class WebhookServiceTest
     @Before
     public void before()
     {
-        webhookService = new WebhookService(okHttpClient, executor);
+        webhookService = new WebhookService(client, okHttpClient, executor);
         when(okHttpClient.newCall(any())).thenReturn(call);
         doReturn(scheduledFuture).when(executor).schedule(any(Runnable.class), anyLong(), any());
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+    }
+
+    @Test
+    public void testGameStateCheck()
+    {
+        when(client.getGameState()).thenReturn(GameState.LOGIN_SCREEN);
+        webhookService.sendWebhook("http://webhook", "Message", null, "Item", WebhookService.WebhookCategory.VALUABLE_DROP);
+        
+        // Should not be scheduled
+        verify(executor, never()).schedule(any(Runnable.class), anyLong(), any());
+    }
+
+    @Test
+    public void testManualBypass()
+    {
+        // No stubbing for client.getGameState() needed as it should be bypassed
+        webhookService.sendWebhook("http://webhook", "Manual", null);
+        
+        // Should be scheduled even if not logged in
+        verify(executor).schedule(any(Runnable.class), eq(3L), eq(TimeUnit.SECONDS));
+        verify(client, never()).getGameState();
     }
 
     @Test

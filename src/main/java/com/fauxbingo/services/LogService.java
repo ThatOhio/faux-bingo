@@ -12,6 +12,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
@@ -51,7 +52,7 @@ public class LogService
 	 */
 	public void log(String type, Object data)
 	{
-		if (!config.enableLoggingApi() || config.loggingApiUrl().isEmpty())
+		if (!config.enableLoggingApi() || config.loggingApiUrl().isEmpty() || client.getGameState() != GameState.LOGGED_IN)
 		{
 			return;
 		}

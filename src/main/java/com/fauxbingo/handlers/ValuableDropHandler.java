@@ -68,7 +68,7 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		
 		if (matcher.matches())
 		{
-			int valuableDropValue = Integer.parseInt(matcher.group(2).replaceAll(",", ""));
+			long valuableDropValue = Long.parseLong(matcher.group(2).replaceAll(",", ""));
 			
 			if (valuableDropValue >= config.valuableDropThreshold())
 			{

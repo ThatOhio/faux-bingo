@@ -93,16 +93,28 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		String message = String.format("**%s** just received a valuable drop: **%s**!\nApprox Value: **%s coins**", 
 			playerName, itemName, itemValue);
 
+		String bundlingKey = cleanItemName(itemName);
+
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(message, itemName);
+			takeScreenshotAndSend(message, bundlingKey);
 		}
 		else
 		{
-			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.VALUABLE_DROP);
+			webhookService.sendWebhook(config.webhookUrl(), message, null, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
 		}
 
 		logValuableDrop(itemName, itemValue);
+	}
+
+	private String cleanItemName(String itemName)
+	{
+		if (itemName == null)
+		{
+			return null;
+		}
+		// Strip quantity prefix like "30 x " or "1,000 x " to help with bundling across different handlers
+		return itemName.replaceAll("^[0-9,]+ x ", "");
 	}
 
 	private void logValuableDrop(String itemName, String itemValue)

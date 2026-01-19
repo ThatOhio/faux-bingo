@@ -1,9 +1,12 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.LootRecord;
 import com.google.common.collect.ImmutableList;
 import java.awt.image.BufferedImage;
+import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -26,6 +29,7 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 	private final Client client;
 	private final FauxBingoConfig config;
 	private final WebhookService webhookService;
+	private final LogService logService;
 	private final DrawManager drawManager;
 	private final ScheduledExecutorService executor;
 
@@ -33,12 +37,14 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 		Client client,
 		FauxBingoConfig config,
 		WebhookService webhookService,
+		LogService logService,
 		DrawManager drawManager,
 		ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
 		this.webhookService = webhookService;
+		this.logService = logService;
 		this.drawManager = drawManager;
 		this.executor = executor;
 	}
@@ -86,6 +92,21 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 		{
 			webhookService.sendWebhook(config.webhookUrl(), webhookMessage, null);
 		}
+
+		logPetDrop();
+	}
+
+	private void logPetDrop()
+	{
+		LootRecord lootRecord = LootRecord.builder()
+			.source("Pet")
+			.items(Collections.singletonList(LootRecord.LootItem.builder()
+				.name("Pet")
+				.quantity(1)
+				.build()))
+			.build();
+
+		logService.log("PET", lootRecord);
 	}
 
 	private void takeScreenshotAndSend(String message)

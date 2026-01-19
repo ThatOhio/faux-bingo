@@ -31,6 +31,13 @@ public interface FauxBingoConfig extends Config
 	)
 	String discordAlertsSection = "discordAlerts";
 
+	@ConfigSection(
+		name = "Logging API",
+		description = "Configure external data logging API",
+		position = 3
+	)
+	String loggingApiSection = "loggingApi";
+
 	// ========== Team Overlay Configuration ==========
 
 	@ConfigItem(
@@ -215,5 +222,31 @@ public interface FauxBingoConfig extends Config
 	default int minLootValue()
 	{
 		return 1000000;
+	}
+
+	// ========== Logging API Configuration ==========
+
+	@ConfigItem(
+		keyName = "enableLoggingApi",
+		name = "Enable Logging API",
+		description = "Sends loot data to an api to be used for post bingo statistics.",
+		position = 1,
+		section = loggingApiSection
+	)
+	default boolean enableLoggingApi()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "loggingApiUrl",
+		name = "API URL",
+		description = "The endpoint URL for the external logging API (Please do not change unless you know what you're doing)",
+		position = 2,
+		section = loggingApiSection
+	)
+	default String loggingApiUrl()
+	{
+		return "https://faux-api.thatohio.me/api/logs";
 	}
 }

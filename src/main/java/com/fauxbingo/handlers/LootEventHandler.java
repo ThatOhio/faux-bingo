@@ -1,10 +1,14 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.LootRecord;
 import java.awt.image.BufferedImage;
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
@@ -22,6 +26,7 @@ public class LootEventHandler
 	private final FauxBingoConfig config;
 	private final ItemManager itemManager;
 	private final WebhookService webhookService;
+	private final LogService logService;
 	private final DrawManager drawManager;
 	private final ScheduledExecutorService executor;
 
@@ -29,12 +34,14 @@ public class LootEventHandler
 		FauxBingoConfig config,
 		ItemManager itemManager,
 		WebhookService webhookService,
+		LogService logService,
 		DrawManager drawManager,
 		ScheduledExecutorService executor)
 	{
 		this.config = config;
 		this.itemManager = itemManager;
 		this.webhookService = webhookService;
+		this.logService = logService;
 		this.drawManager = drawManager;
 		this.executor = executor;
 	}
@@ -109,6 +116,29 @@ public class LootEventHandler
 				webhookService.sendWebhook(config.webhookUrl(), message, null);
 			}
 		}
+
+		// Always log to the external API if enabled
+		logLoot(source, items, totalValue);
+	}
+
+	private void logLoot(String source, Collection<ItemStack> items, long totalValue)
+	{
+		List<LootRecord.LootItem> lootItems = items.stream()
+			.map(item -> LootRecord.LootItem.builder()
+				.id(item.getId())
+				.name(itemManager.getItemComposition(item.getId()).getName())
+				.quantity(item.getQuantity())
+				.price(itemManager.getItemPrice(item.getId()))
+				.build())
+			.collect(Collectors.toList());
+
+		LootRecord lootRecord = LootRecord.builder()
+			.source(source)
+			.items(lootItems)
+			.totalValue(totalValue)
+			.build();
+
+		logService.log("LOOT", lootRecord);
 	}
 
 	private void takeScreenshotAndSend(String message)

@@ -7,6 +7,7 @@ import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.overlay.TeamOverlay;
+import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.WiseOldManService;
 import com.fauxbingo.trackers.XpTracker;
@@ -77,6 +78,7 @@ public class FauxBingoPlugin extends Plugin
 	private EventProcessor eventProcessor;
 	private WebhookService webhookService;
 	private WiseOldManService wiseOldManService;
+	private LogService logService;
 	private LootEventHandler lootEventHandler;
 	private PetChatHandler petChatHandler;
 	private CollectionLogHandler collectionLogHandler;
@@ -95,17 +97,18 @@ public class FauxBingoPlugin extends Plugin
 		// Initialize services
 		webhookService = new WebhookService(okHttpClient);
 		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
+		logService = new LogService(client, config, okHttpClient, gson, executor);
 		eventProcessor = new EventProcessor();
 
 		// Initialize trackers
 		xpTracker = new XpTracker(client, config, wiseOldManService);
 
 		// Initialize handlers
-		lootEventHandler = new LootEventHandler(config, itemManager, webhookService, drawManager, executor);
-		petChatHandler = new PetChatHandler(client, config, webhookService, drawManager, executor);
-		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, drawManager, executor);
-		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, drawManager, executor);
-		raidLootHandler = new RaidLootHandler(client, config, webhookService, drawManager, executor);
+		lootEventHandler = new LootEventHandler(config, itemManager, webhookService, logService, drawManager, executor);
+		petChatHandler = new PetChatHandler(client, config, webhookService, logService, drawManager, executor);
+		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, drawManager, executor);
+		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, drawManager, executor);
+		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, drawManager, executor);
 		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, drawManager, executor, keyManager);
 
 		// Register event handlers

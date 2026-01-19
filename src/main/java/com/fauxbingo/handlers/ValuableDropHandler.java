@@ -1,9 +1,12 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.LootRecord;
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Array;
+import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,6 +30,7 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 	private final Client client;
 	private final FauxBingoConfig config;
 	private final WebhookService webhookService;
+	private final LogService logService;
 	private final DrawManager drawManager;
 	private final ScheduledExecutorService executor;
 
@@ -34,12 +38,14 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		Client client,
 		FauxBingoConfig config,
 		WebhookService webhookService,
+		LogService logService,
 		DrawManager drawManager,
 		ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
 		this.webhookService = webhookService;
+		this.logService = logService;
 		this.drawManager = drawManager;
 		this.executor = executor;
 	}
@@ -95,6 +101,25 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		{
 			webhookService.sendWebhook(config.webhookUrl(), message, null);
 		}
+
+		logValuableDrop(itemName, itemValue);
+	}
+
+	private void logValuableDrop(String itemName, String itemValue)
+	{
+		long value = Long.parseLong(itemValue.replaceAll(",", ""));
+
+		LootRecord lootRecord = LootRecord.builder()
+			.source("Valuable Drop")
+			.items(Collections.singletonList(LootRecord.LootItem.builder()
+				.name(itemName)
+				.quantity(1)
+				.price((int) value) // might overflow if > 2B, but item prices are usually ints
+				.build()))
+			.totalValue(value)
+			.build();
+
+		logService.log("VALUABLE_DROP", lootRecord);
 	}
 
 	private void takeScreenshotAndSend(String message)

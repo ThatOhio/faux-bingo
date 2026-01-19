@@ -95,7 +95,7 @@ public class FauxBingoPlugin extends Plugin
 		log.info("Faux Bingo started!");
 
 		// Initialize services
-		webhookService = new WebhookService(okHttpClient);
+		webhookService = new WebhookService(okHttpClient, executor);
 		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
 		logService = new LogService(client, config, okHttpClient, gson, executor);
 		eventProcessor = new EventProcessor();

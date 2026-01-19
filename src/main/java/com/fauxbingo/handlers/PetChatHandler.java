@@ -86,11 +86,11 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(webhookMessage);
+			takeScreenshotAndSend(webhookMessage, "Pet");
 		}
 		else
 		{
-			webhookService.sendWebhook(config.webhookUrl(), webhookMessage, null);
+			webhookService.sendWebhook(config.webhookUrl(), webhookMessage, null, "Pet", WebhookService.WebhookCategory.PET);
 		}
 
 		logPetDrop();
@@ -109,13 +109,13 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 		logService.log("PET", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message)
+	private void takeScreenshotAndSend(String message, String itemName)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.PET);
 				}
 				catch (Exception e)
 				{

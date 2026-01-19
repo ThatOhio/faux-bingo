@@ -270,11 +270,11 @@ public class RaidLootHandler
 
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(message.toString());
+			takeScreenshotAndSend(message.toString(), itemName);
 		}
 		else
 		{
-			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null);
+			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null, itemName, WebhookService.WebhookCategory.RAID_LOOT);
 		}
 
 		logRaidLoot(itemName, raidName, kc);
@@ -294,13 +294,13 @@ public class RaidLootHandler
 		logService.log("RAID_LOOT", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message)
+	private void takeScreenshotAndSend(String message, String itemName)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.RAID_LOOT);
 				}
 				catch (Exception e)
 				{

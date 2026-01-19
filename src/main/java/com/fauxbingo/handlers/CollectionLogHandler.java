@@ -136,11 +136,11 @@ public class CollectionLogHandler
 
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(message);
+			takeScreenshotAndSend(message, itemName);
 		}
 		else
 		{
-			webhookService.sendWebhook(config.webhookUrl(), message, null);
+			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.COLLECTION_LOG);
 		}
 
 		logCollectionLogItem(itemName);
@@ -159,13 +159,13 @@ public class CollectionLogHandler
 		logService.log("COLLECTION_LOG", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message)
+	private void takeScreenshotAndSend(String message, String itemName)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.COLLECTION_LOG);
 				}
 				catch (Exception e)
 				{

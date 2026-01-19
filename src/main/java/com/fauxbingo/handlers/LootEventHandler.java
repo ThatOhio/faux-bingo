@@ -107,13 +107,15 @@ public class LootEventHandler
 			String message = String.format("Loot received from %s: %s (Total value: %,d gp)",
 				source, lootString.toString(), totalValue);
 			
+			String itemName = items.size() == 1 ? itemManager.getItemComposition(items.iterator().next().getId()).getName() : null;
+
 			if (config.sendScreenshot())
 			{
-				takeScreenshotAndSend(message);
+				takeScreenshotAndSend(message, itemName);
 			}
 			else
 			{
-				webhookService.sendWebhook(config.webhookUrl(), message, null);
+				webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.LOOT);
 			}
 		}
 
@@ -141,13 +143,13 @@ public class LootEventHandler
 		logService.log("LOOT", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message)
+	private void takeScreenshotAndSend(String message, String itemName)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.LOOT);
 				}
 				catch (Exception e)
 				{

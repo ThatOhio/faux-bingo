@@ -230,12 +230,13 @@ public interface FauxBingoConfig extends Config
 		keyName = "enableLoggingApi",
 		name = "Enable Logging API",
 		description = "Sends loot data to an api to be used for post bingo statistics.",
+		warning = "This feature submits your IP address, RSN, and information about your drops to a 3rd-party server not controlled or verified by Runelite developers.",
 		position = 1,
 		section = loggingApiSection
 	)
 	default boolean enableLoggingApi()
 	{
-		return true;
+		return false;
 	}
 
 	@ConfigItem(

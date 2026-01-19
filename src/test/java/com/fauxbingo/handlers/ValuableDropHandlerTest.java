@@ -121,4 +121,34 @@ public class ValuableDropHandlerTest
 		verify(drawManager).requestNextFrameListener(any());
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 	}
+
+	@Test
+	public void testValuableDropWithQuantity()
+	{
+		ChatMessage event = new ChatMessage();
+		event.setType(ChatMessageType.GAMEMESSAGE);
+		event.setMessage("Valuable drop: 30 x Chaos rune (1,680 coins)");
+
+		when(config.valuableDropThreshold()).thenReturn(1000);
+
+		valuableDropHandler.handle(event);
+
+		// The bundling key (cleaned) should be "Chaos rune"
+		verify(webhookService).sendWebhook(anyString(), contains("30 x Chaos rune"), isNull(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+	}
+
+	@Test
+	public void testValuableDropWithLargeQuantity()
+	{
+		ChatMessage event = new ChatMessage();
+		event.setType(ChatMessageType.GAMEMESSAGE);
+		event.setMessage("Valuable drop: 1,000 x Chaos rune (56,000 coins)");
+
+		when(config.valuableDropThreshold()).thenReturn(1000);
+
+		valuableDropHandler.handle(event);
+
+		// The bundling key (cleaned) should be "Chaos rune"
+		verify(webhookService).sendWebhook(anyString(), contains("1,000 x Chaos rune"), isNull(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+	}
 }

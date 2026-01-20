@@ -1,6 +1,7 @@
 package com.fauxbingo.services;
 
 import java.awt.image.BufferedImage;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -112,5 +113,29 @@ public class WebhookServiceTest
 
         // Verify two calls were made
         verify(okHttpClient, times(2)).newCall(any());
+    }
+
+    @Test
+    public void testWebhookUrlSplitting()
+    {
+        // Test various separators and whitespace: comma, newline, and mixed
+        String urls = "http://url1, http://url2\nhttp://url3, \n http://url4";
+        webhookService.sendWebhook(urls, "Message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        // Should be 4 separate calls
+        verify(okHttpClient, times(4)).newCall(any());
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient, times(4)).newCall(requestCaptor.capture());
+
+        List<Request> requests = requestCaptor.getAllValues();
+        assertEquals("http://url1/", requests.get(0).url().toString());
+        assertEquals("http://url2/", requests.get(1).url().toString());
+        assertEquals("http://url3/", requests.get(2).url().toString());
+        assertEquals("http://url4/", requests.get(3).url().toString());
     }
 }

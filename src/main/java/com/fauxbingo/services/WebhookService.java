@@ -243,7 +243,7 @@ public class WebhookService
 
 	private void processWebhook(String webhookUrls, String message, BufferedImage image)
 	{
-		String[] urls = webhookUrls.split("\n");
+		String[] urls = webhookUrls.split("[\n,]");
 
 		byte[] imageBytes = null;
 		if (image != null)

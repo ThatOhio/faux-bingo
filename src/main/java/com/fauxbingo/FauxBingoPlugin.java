@@ -102,7 +102,7 @@ public class FauxBingoPlugin extends Plugin
 		xpTracker = new XpTracker(client, config, wiseOldManService);
 
 		// Initialize handlers
-		lootEventHandler = new LootEventHandler(config, itemManager, webhookService, logService, drawManager, executor);
+		lootEventHandler = new LootEventHandler(client, config, itemManager, webhookService, logService, drawManager, executor);
 		petChatHandler = new PetChatHandler(client, config, webhookService, logService, drawManager, executor);
 		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, drawManager, executor);
 		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, drawManager, executor);

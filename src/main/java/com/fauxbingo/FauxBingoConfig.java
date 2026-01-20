@@ -295,4 +295,16 @@ public interface FauxBingoConfig extends Config
 	{
 		return "";
 	}
+
+	@ConfigItem(
+		keyName = "otherBingoItems",
+		name = "Other Items",
+		description = "Items to track from any source, separated by commas",
+		position = 4,
+		section = bingoTilesSection
+	)
+	default String otherBingoItems()
+	{
+		return "";
+	}
 }

@@ -44,10 +44,11 @@ public class WebhookService
 	{
 		PET(1),
 		RAID_LOOT(2),
-		VALUABLE_DROP(3),
-		COLLECTION_LOG(4),
-		LOOT(5),
-		MISC(6);
+		BINGO_LOOT(3),
+		VALUABLE_DROP(4),
+		COLLECTION_LOG(5),
+		LOOT(6),
+		MISC(7);
 
 		private final int priority;
 
@@ -236,6 +237,8 @@ public class WebhookService
 				return "*They also received a pet!*";
 			case RAID_LOOT:
 				return "";
+			case BINGO_LOOT:
+				return "*This item is on the bingo list!*";
 			default:
 				return null;
 		}

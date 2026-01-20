@@ -5,6 +5,7 @@ import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
 import java.util.Arrays;
 import java.util.concurrent.ScheduledExecutorService;
+import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
@@ -30,6 +31,9 @@ import static org.mockito.Mockito.*;
 @RunWith(MockitoJUnitRunner.class)
 public class LootEventHandlerTest
 {
+	@Mock
+	private Client client;
+
 	@Mock
 	private FauxBingoConfig config;
 
@@ -62,7 +66,7 @@ public class LootEventHandlerTest
 	@Before
 	public void before()
 	{
-		lootEventHandler = new LootEventHandler(config, itemManager, webhookService, logService, drawManager, executor);
+		lootEventHandler = new LootEventHandler(client, config, itemManager, webhookService, logService, drawManager, executor);
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.minLootValue()).thenReturn(1000000);
 		when(config.sendScreenshot()).thenReturn(false);
@@ -123,5 +127,19 @@ public class LootEventHandlerTest
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 		verify(logService).log(eq("LOOT"), any()); // Should still log to external API
+	}
+
+	@Test
+	public void testOtherBingoItem()
+	{
+		when(config.otherBingoItems()).thenReturn("Dragon bones");
+		when(npc.getName()).thenReturn("Vorkath");
+		ItemStack item = new ItemStack(536, 1, null); // Only 1 bone, way below 1M threshold
+		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item));
+
+		lootEventHandler.createNpcLootHandler().handle(event);
+
+		// Should send bingo notification even though it's below minLootValue
+		verify(webhookService).sendWebhook(anyString(), contains("1 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 }

@@ -4,12 +4,16 @@ import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.util.LootMatcher;
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Array;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -69,15 +73,60 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		if (matcher.matches())
 		{
 			long valuableDropValue = Long.parseLong(matcher.group(2).replaceAll(",", ""));
+			String[] valuableDrop = matcher.group(1).split(" \\(");
+			String valuableDropName = (String) Array.get(valuableDrop, 0);
+			String valuableDropValueString = matcher.group(2);
 			
 			if (valuableDropValue >= config.valuableDropThreshold())
 			{
-				String[] valuableDrop = matcher.group(1).split(" \\(");
-				String valuableDropName = (String) Array.get(valuableDrop, 0);
-				String valuableDropValueString = matcher.group(2);
-				
 				sendValuableDropNotification(valuableDropName, valuableDropValueString);
 			}
+
+			checkOtherBingoItems(valuableDropName);
+		}
+	}
+
+	private void checkOtherBingoItems(String itemNameWithQuantity)
+	{
+		String otherItemsConfig = config.otherBingoItems();
+		if (otherItemsConfig == null || otherItemsConfig.isEmpty())
+		{
+			return;
+		}
+
+		List<String> otherBingoItems = Arrays.stream(otherItemsConfig.split(","))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.collect(Collectors.toList());
+
+		String itemName = cleanItemName(itemNameWithQuantity);
+		if (LootMatcher.matchesAny(itemName, otherBingoItems))
+		{
+			int quantity = 1;
+			Pattern quantityPattern = Pattern.compile("^([0-9,]+) x ");
+			Matcher quantityMatcher = quantityPattern.matcher(itemNameWithQuantity);
+			if (quantityMatcher.find())
+			{
+				quantity = Integer.parseInt(quantityMatcher.group(1).replaceAll(",", ""));
+			}
+
+			sendBingoNotification(itemName, quantity);
+		}
+	}
+
+	private void sendBingoNotification(String itemName, int quantity)
+	{
+		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
+		String message = String.format("**%s** just received a special item: **%d x %s**!",
+			playerName, quantity, itemName);
+
+		if (config.sendScreenshot())
+		{
+			takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
+		}
+		else
+		{
+			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
 		}
 	}
 
@@ -97,7 +146,7 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(message, bundlingKey);
+			takeScreenshotAndSend(message, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
 		}
 		else
 		{
@@ -134,17 +183,17 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		logService.log("VALUABLE_DROP", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message, String itemName)
+	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.VALUABLE_DROP);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, category);
 				}
 				catch (Exception e)
 				{
-					log.error("Error sending webhook with screenshot for valuable drop", e);
+					log.error("Error sending webhook with screenshot for {}", category, e);
 				}
 			});
 		});

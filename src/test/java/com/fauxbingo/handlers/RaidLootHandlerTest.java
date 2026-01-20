@@ -178,7 +178,7 @@ public class RaidLootHandlerTest
 			contains("100 x Dynamite"), 
 			isNull(), 
 			eq("Dynamite"), 
-			eq(WebhookService.WebhookCategory.RAID_LOOT)
+			eq(WebhookService.WebhookCategory.BINGO_LOOT)
 		);
 		verify(logService).log(eq("BINGO_LOOT"), any());
 	}
@@ -214,7 +214,7 @@ public class RaidLootHandlerTest
 			contains("50 x Vial of blood"), 
 			isNull(), 
 			eq("Vial of blood"), 
-			eq(WebhookService.WebhookCategory.RAID_LOOT)
+			eq(WebhookService.WebhookCategory.BINGO_LOOT)
 		);
 	}
 
@@ -249,7 +249,7 @@ public class RaidLootHandlerTest
 			argThat(s -> s.contains("25 x Lily of the sands") && s.contains("Tombs of Amascut") && s.contains("Kill Count: **10**")), 
 			isNull(), 
 			eq("Lily of the sands"), 
-			eq(WebhookService.WebhookCategory.RAID_LOOT)
+			eq(WebhookService.WebhookCategory.BINGO_LOOT)
 		);
 	}
 
@@ -293,5 +293,48 @@ public class RaidLootHandlerTest
 			any()
 		);
 		verify(webhookService, never()).sendWebhook(anyString(), contains("just received a BINGO item"), any(), anyString(), any());
+	}
+
+	@Test
+	public void testPluralBingoItem()
+	{
+		// Config has singular "Soul rune"
+		when(config.coxBingoItems()).thenReturn("Soul rune");
+		
+		when(client.getWidget(eq(InterfaceID.RAIDS_REWARDS), anyInt())).thenReturn(rewardWidget);
+		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
+		when(itemWidget.getItemId()).thenReturn(1234);
+		when(itemWidget.getItemQuantity()).thenReturn(100);
+		
+		// Item dropped is plural "Soul runes"
+		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Soul runes");
+
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		verify(webhookService).sendWebhook(anyString(), contains("100 x Soul runes"), any(), eq("Soul runes"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
+	}
+
+	@Test
+	public void testOtherBingoItem()
+	{
+		// Config has "Dragon bones" in Other Items
+		when(config.otherBingoItems()).thenReturn("Dragon bones");
+		
+		when(client.getWidget(eq(InterfaceID.RAIDS_REWARDS), anyInt())).thenReturn(rewardWidget);
+		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
+		when(itemWidget.getItemId()).thenReturn(536);
+		when(itemWidget.getItemQuantity()).thenReturn(50);
+		
+		when(itemManager.getItemComposition(536)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Dragon bones");
+
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		verify(webhookService).sendWebhook(anyString(), contains("50 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 }

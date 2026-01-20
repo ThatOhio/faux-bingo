@@ -4,12 +4,15 @@ import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.util.LootMatcher;
 import java.awt.image.BufferedImage;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
@@ -23,6 +26,7 @@ import net.runelite.client.ui.DrawManager;
 @Slf4j
 public class LootEventHandler
 {
+	private final Client client;
 	private final FauxBingoConfig config;
 	private final ItemManager itemManager;
 	private final WebhookService webhookService;
@@ -31,6 +35,7 @@ public class LootEventHandler
 	private final ScheduledExecutorService executor;
 
 	public LootEventHandler(
+		Client client,
 		FauxBingoConfig config,
 		ItemManager itemManager,
 		WebhookService webhookService,
@@ -38,6 +43,7 @@ public class LootEventHandler
 		DrawManager drawManager,
 		ScheduledExecutorService executor)
 	{
+		this.client = client;
 		this.config = config;
 		this.itemManager = itemManager;
 		this.webhookService = webhookService;
@@ -111,7 +117,7 @@ public class LootEventHandler
 
 			if (config.sendScreenshot())
 			{
-				takeScreenshotAndSend(message, itemName);
+				takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.LOOT);
 			}
 			else
 			{
@@ -121,6 +127,48 @@ public class LootEventHandler
 
 		// Always log to the external API if enabled
 		logLoot(source, items, totalValue);
+
+		// Check for other bingo items
+		checkOtherBingoItems(source, items);
+	}
+
+	private void checkOtherBingoItems(String source, Collection<ItemStack> items)
+	{
+		String otherItemsConfig = config.otherBingoItems();
+		if (otherItemsConfig == null || otherItemsConfig.isEmpty())
+		{
+			return;
+		}
+
+		List<String> otherBingoItems = Arrays.stream(otherItemsConfig.split(","))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.collect(Collectors.toList());
+
+		for (ItemStack itemStack : items)
+		{
+			String itemName = itemManager.getItemComposition(itemStack.getId()).getName();
+			if (LootMatcher.matchesAny(itemName, otherBingoItems))
+			{
+				sendBingoNotification(source, itemName, itemStack.getQuantity());
+			}
+		}
+	}
+
+	private void sendBingoNotification(String source, String itemName, int quantity)
+	{
+		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
+		String message = String.format("**%s** just received a special item from %s: **%d x %s**!",
+			playerName, source, quantity, itemName);
+
+		if (config.sendScreenshot())
+		{
+			takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
+		}
+		else
+		{
+			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
+		}
 	}
 
 	private void logLoot(String source, Collection<ItemStack> items, long totalValue)
@@ -143,17 +191,17 @@ public class LootEventHandler
 		logService.log("LOOT", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message, String itemName)
+	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.LOOT);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, category);
 				}
 				catch (Exception e)
 				{
-					log.error("Error sending webhook with screenshot", e);
+					log.error("Error sending webhook with screenshot for {}", category, e);
 				}
 			});
 		});

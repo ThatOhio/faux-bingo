@@ -116,6 +116,26 @@ public class WebhookServiceTest
     }
 
     @Test
+    public void testBingoBundling()
+    {
+        String urls = "http://webhook";
+        
+        webhookService.sendWebhook(urls, "Loot: 100 x Soul rune", null, "Soul rune", WebhookService.WebhookCategory.LOOT);
+        webhookService.sendWebhook(urls, "Special item: 100 x Soul rune", null, "Soul rune", WebhookService.WebhookCategory.BINGO_LOOT);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        // BINGO_LOOT (3) has higher priority than LOOT (6), so BINGO_LOOT should be primary
+        verify(okHttpClient).newCall(argThat(request -> {
+            // This is hard to check accurately without deep-inspecting MultipartBody, 
+            // but we can at least verify it happened.
+            return request.url().toString().equals("http://webhook/");
+        }));
+    }
+
+    @Test
     public void testWebhookUrlSplitting()
     {
         // Test various separators and whitespace: comma, newline, and mixed

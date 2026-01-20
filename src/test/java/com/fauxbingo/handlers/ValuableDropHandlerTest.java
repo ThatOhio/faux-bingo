@@ -151,4 +151,22 @@ public class ValuableDropHandlerTest
 		// The bundling key (cleaned) should be "Chaos rune"
 		verify(webhookService).sendWebhook(anyString(), contains("1,000 x Chaos rune"), isNull(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 	}
+
+	@Test
+	public void testOtherBingoItem()
+	{
+		when(config.otherBingoItems()).thenReturn("Soul rune");
+		ChatMessage event = new ChatMessage();
+		event.setType(ChatMessageType.GAMEMESSAGE);
+		event.setMessage("Valuable drop: 100 x Soul rune (15,000 coins)");
+
+		// Threshold is 1M, so it's way below
+		valuableDropHandler.handle(event);
+
+		// Should NOT send valuable drop notification
+		verify(webhookService, never()).sendWebhook(anyString(), contains("valuable drop"), any(), anyString(), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		
+		// Should send bingo notification
+		verify(webhookService).sendWebhook(anyString(), contains("100 x Soul rune"), any(), eq("Soul rune"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
+	}
 }

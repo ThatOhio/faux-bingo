@@ -4,6 +4,7 @@ import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.util.LootMatcher;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.Collections;
@@ -320,7 +321,18 @@ public class RaidLootHandler
 			configItems = config.toaBingoItems();
 		}
 
-		if (configItems == null || configItems.isEmpty())
+		if (configItems == null)
+		{
+			configItems = "";
+		}
+
+		String otherItems = config.otherBingoItems();
+		if (otherItems == null)
+		{
+			otherItems = "";
+		}
+
+		if (configItems.isEmpty() && otherItems.isEmpty())
 		{
 			return;
 		}
@@ -328,13 +340,12 @@ public class RaidLootHandler
 		List<String> bingoItems = Arrays.stream(configItems.split(","))
 			.map(String::trim)
 			.filter(s -> !s.isEmpty())
-			.map(String::toLowerCase)
 			.collect(Collectors.toList());
 
-		if (bingoItems.isEmpty())
-		{
-			return;
-		}
+		List<String> otherBingoItems = Arrays.stream(otherItems.split(","))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.collect(Collectors.toList());
 
 		int childId = -1;
 		if (groupId == CoX_Interface_Id) childId = 1;
@@ -364,7 +375,7 @@ public class RaidLootHandler
 			if (itemId != -1)
 			{
 				String itemName = itemManager.getItemComposition(itemId).getName();
-				if (bingoItems.contains(itemName.toLowerCase()))
+				if (LootMatcher.matchesAny(itemName, bingoItems) || LootMatcher.matchesAny(itemName, otherBingoItems))
 				{
 					// If this item was already identified as the rare drop, we don't need a second notification
 					if (raidItemName != null && itemName.equalsIgnoreCase(raidItemName))
@@ -391,11 +402,11 @@ public class RaidLootHandler
 
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(message.toString(), itemName);
+			takeScreenshotAndSend(message.toString(), itemName, WebhookService.WebhookCategory.BINGO_LOOT);
 		}
 		else
 		{
-			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null, itemName, WebhookService.WebhookCategory.RAID_LOOT);
+			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
 		}
 
 		logBingoLoot(itemName, quantity, raidName, kc);
@@ -429,7 +440,7 @@ public class RaidLootHandler
 
 		if (config.sendScreenshot())
 		{
-			takeScreenshotAndSend(message.toString(), itemName);
+			takeScreenshotAndSend(message.toString(), itemName, WebhookService.WebhookCategory.RAID_LOOT);
 		}
 		else
 		{
@@ -453,13 +464,13 @@ public class RaidLootHandler
 		logService.log("RAID_LOOT", lootRecord);
 	}
 
-	private void takeScreenshotAndSend(String message, String itemName)
+	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
 	{
 		drawManager.requestNextFrameListener(image -> {
 			executor.execute(() -> {
 				try
 				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.RAID_LOOT);
+					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, category);
 				}
 				catch (Exception e)
 				{

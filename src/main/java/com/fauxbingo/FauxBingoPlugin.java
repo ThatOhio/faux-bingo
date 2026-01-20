@@ -106,7 +106,7 @@ public class FauxBingoPlugin extends Plugin
 		petChatHandler = new PetChatHandler(client, config, webhookService, logService, drawManager, executor);
 		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, drawManager, executor);
 		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, drawManager, executor);
-		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, drawManager, executor);
+		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, drawManager, executor, itemManager);
 		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, drawManager, executor, keyManager);
 
 		// Register event handlers

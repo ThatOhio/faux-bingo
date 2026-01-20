@@ -5,17 +5,22 @@ import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import java.awt.image.BufferedImage;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.DrawManager;
 import net.runelite.client.util.Text;
 
@@ -34,6 +39,7 @@ public class RaidLootHandler
 
 	private static final int CoX_Interface_Id = InterfaceID.RAIDS_REWARDS;
 	private static final int ToB_Interface_Id = InterfaceID.TOB_CHESTS;
+	private static final int ToA_Interface_Id = 775; // InterfaceID.TOA_REWARD_CHEST might not be available in all versions
 
 	enum RaidType
 	{
@@ -41,7 +47,10 @@ public class RaidLootHandler
 		COX_CM,
 		TOB,
 		TOB_SM,
-		TOB_HM
+		TOB_HM,
+		TOA_ENTRY,
+		TOA_NORMAL,
+		TOA_EXPERT
 	}
 
 	private final Client client;
@@ -50,6 +59,7 @@ public class RaidLootHandler
 	private final LogService logService;
 	private final DrawManager drawManager;
 	private final ScheduledExecutorService executor;
+	private final ItemManager itemManager;
 
 	private RaidType raidType;
 	private Integer raidKc;
@@ -61,7 +71,8 @@ public class RaidLootHandler
 		WebhookService webhookService,
 		LogService logService,
 		DrawManager drawManager,
-		ScheduledExecutorService executor)
+		ScheduledExecutorService executor,
+		ItemManager itemManager)
 	{
 		this.client = client;
 		this.config = config;
@@ -69,6 +80,7 @@ public class RaidLootHandler
 		this.logService = logService;
 		this.drawManager = drawManager;
 		this.executor = executor;
+		this.itemManager = itemManager;
 	}
 
 	public EventHandler<ChatMessage> createChatHandler()
@@ -117,7 +129,7 @@ public class RaidLootHandler
 
 				int groupId = event.getGroupId();
 
-				if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id)
+				if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id || groupId == ToA_Interface_Id)
 				{
 					handleRaidRewardWidget(groupId);
 				}
@@ -153,6 +165,29 @@ public class RaidLootHandler
 			{
 				raidType = chatMessage.contains("Hard Mode") ? RaidType.TOB_HM : 
 					(chatMessage.contains("Story Mode") ? RaidType.TOB_SM : RaidType.TOB);
+				raidKc = Integer.valueOf(matcher.group());
+				return;
+			}
+		}
+
+		// Check for TOA completion
+		if (chatMessage.contains("Tombs of Amascut") && chatMessage.contains("completion count is"))
+		{
+			Matcher matcher = KC_MESSAGE_PATTERN.matcher(Text.removeTags(chatMessage));
+			if (matcher.find())
+			{
+				if (chatMessage.contains("Expert Mode"))
+				{
+					raidType = RaidType.TOA_EXPERT;
+				}
+				else if (chatMessage.contains("Entry Mode"))
+				{
+					raidType = RaidType.TOA_ENTRY;
+				}
+				else
+				{
+					raidType = RaidType.TOA_NORMAL;
+				}
 				raidKc = Integer.valueOf(matcher.group());
 				return;
 			}
@@ -211,49 +246,173 @@ public class RaidLootHandler
 
 	private void handleRaidRewardWidget(int groupId)
 	{
-		if (raidItemName == null)
+		String raidName = getRaidName(groupId);
+		if (raidName == null)
 		{
 			return;
 		}
 
-		String raidName = null;
-
-		if (groupId == CoX_Interface_Id)
-		{
-			if (raidType == RaidType.COX)
-			{
-				raidName = "Chambers of Xeric";
-			}
-			else if (raidType == RaidType.COX_CM)
-			{
-				raidName = "Chambers of Xeric Challenge Mode";
-			}
-		}
-		else if (groupId == ToB_Interface_Id)
-		{
-			if (raidType == RaidType.TOB)
-			{
-				raidName = "Theatre of Blood";
-			}
-			else if (raidType == RaidType.TOB_SM)
-			{
-				raidName = "Theatre of Blood Story Mode";
-			}
-			else if (raidType == RaidType.TOB_HM)
-			{
-				raidName = "Theatre of Blood Hard Mode";
-			}
-		}
-
-		if (raidName != null)
+		// 1. Handle rare drop if detected from chat
+		if (raidItemName != null)
 		{
 			sendRaidLootNotification(raidItemName, raidName, raidKc);
 		}
+
+		// 2. Handle bingo items from the widget
+		checkBingoItems(groupId, raidName);
 
 		// Reset state
 		raidItemName = null;
 		raidType = null;
 		raidKc = null;
+	}
+
+	private String getRaidName(int groupId)
+	{
+		if (groupId == CoX_Interface_Id)
+		{
+			if (raidType == RaidType.COX_CM)
+			{
+				return "Chambers of Xeric Challenge Mode";
+			}
+			return "Chambers of Xeric";
+		}
+		else if (groupId == ToB_Interface_Id)
+		{
+			if (raidType == RaidType.TOB_SM)
+			{
+				return "Theatre of Blood Story Mode";
+			}
+			else if (raidType == RaidType.TOB_HM)
+			{
+				return "Theatre of Blood Hard Mode";
+			}
+			return "Theatre of Blood";
+		}
+		else if (groupId == ToA_Interface_Id)
+		{
+			if (raidType == RaidType.TOA_EXPERT)
+			{
+				return "Tombs of Amascut Expert Mode";
+			}
+			else if (raidType == RaidType.TOA_ENTRY)
+			{
+				return "Tombs of Amascut Entry Mode";
+			}
+			return "Tombs of Amascut";
+		}
+		return null;
+	}
+
+	private void checkBingoItems(int groupId, String raidName)
+	{
+		String configItems = "";
+		if (groupId == CoX_Interface_Id)
+		{
+			configItems = config.coxBingoItems();
+		}
+		else if (groupId == ToB_Interface_Id)
+		{
+			configItems = config.tobBingoItems();
+		}
+		else if (groupId == ToA_Interface_Id)
+		{
+			configItems = config.toaBingoItems();
+		}
+
+		if (configItems == null || configItems.isEmpty())
+		{
+			return;
+		}
+
+		List<String> bingoItems = Arrays.stream(configItems.split(","))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.map(String::toLowerCase)
+			.collect(Collectors.toList());
+
+		if (bingoItems.isEmpty())
+		{
+			return;
+		}
+
+		int childId = -1;
+		if (groupId == CoX_Interface_Id) childId = 1;
+		else if (groupId == ToB_Interface_Id) childId = 3;
+		else if (groupId == ToA_Interface_Id) childId = 2;
+
+		if (childId == -1)
+		{
+			return;
+		}
+
+		Widget rewardWidget = client.getWidget(groupId, childId);
+		if (rewardWidget == null)
+		{
+			return;
+		}
+
+		Widget[] children = rewardWidget.getDynamicChildren();
+		if (children == null || children.length == 0)
+		{
+			return;
+		}
+
+		for (Widget child : children)
+		{
+			int itemId = child.getItemId();
+			if (itemId != -1)
+			{
+				String itemName = itemManager.getItemComposition(itemId).getName();
+				if (bingoItems.contains(itemName.toLowerCase()))
+				{
+					// If this item was already identified as the rare drop, we don't need a second notification
+					if (raidItemName != null && itemName.equalsIgnoreCase(raidItemName))
+					{
+						continue;
+					}
+					sendBingoLootNotification(itemName, child.getItemQuantity(), raidName, raidKc);
+				}
+			}
+		}
+	}
+
+	private void sendBingoLootNotification(String itemName, int quantity, String raidName, Integer kc)
+	{
+		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
+		StringBuilder message = new StringBuilder();
+		message.append(String.format("**%s** just received a special item from %s: **%d x %s**!",
+			playerName, raidName, quantity, itemName));
+		
+		if (kc != null && kc > 0)
+		{
+			message.append(String.format("\nKill Count: **%d**", kc));
+		}
+
+		if (config.sendScreenshot())
+		{
+			takeScreenshotAndSend(message.toString(), itemName);
+		}
+		else
+		{
+			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null, itemName, WebhookService.WebhookCategory.RAID_LOOT);
+		}
+
+		logBingoLoot(itemName, quantity, raidName, kc);
+	}
+
+	private void logBingoLoot(String itemName, int quantity, String raidName, Integer kc)
+	{
+		LootRecord lootRecord = LootRecord.builder()
+			.source(raidName)
+			.items(Collections.singletonList(LootRecord.LootItem.builder()
+				.name(itemName)
+				.quantity(quantity)
+				.build()))
+			.kc(kc)
+			.build();
+
+		logService.log("BINGO_LOOT", lootRecord);
 	}
 
 	private void sendRaidLootNotification(String itemName, String raidName, Integer kc)

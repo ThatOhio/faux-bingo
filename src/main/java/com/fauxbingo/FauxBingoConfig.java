@@ -38,6 +38,13 @@ public interface FauxBingoConfig extends Config
 	)
 	String loggingApiSection = "loggingApi";
 
+	@ConfigSection(
+		name = "Bingo Tiles",
+		description = "Configure specific items to track regardless of value",
+		position = 4
+	)
+	String bingoTilesSection = "bingoTiles";
+
 	// ========== Team Overlay Configuration ==========
 
 	@ConfigItem(
@@ -229,8 +236,8 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 		keyName = "enableLoggingApi",
 		name = "Enable Logging API",
-		description = "Sends loot data to an api to be used for post bingo statistics.",
-		warning = "This feature submits your IP address, RSN, and information about your drops to a 3rd-party server not controlled or verified by Runelite developers.",
+		description = "Sends loot data to an api to be used for verification and post bingo statistics.",
+		warning = "This feature submits your IP address, RSN, and information about your drops to a 3rd-party server not controlled or verified by Runelite developers. This data will be used for bingo tile verification, and post bingo statistics.",
 		position = 1,
 		section = loggingApiSection
 	)
@@ -249,5 +256,43 @@ public interface FauxBingoConfig extends Config
 	default String loggingApiUrl()
 	{
 		return "https://faux-api.thatohio.me/api/logs";
+	}
+
+	// ========== Bingo Tiles Configuration ==========
+
+	@ConfigItem(
+		keyName = "coxBingoItems",
+		name = "Chambers of Xeric",
+		description = "Items to track from COX, separated by commas",
+		position = 1,
+		section = bingoTilesSection
+	)
+	default String coxBingoItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = "tobBingoItems",
+		name = "Theatre of Blood",
+		description = "Items to track from TOB, separated by commas",
+		position = 2,
+		section = bingoTilesSection
+	)
+	default String tobBingoItems()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+		keyName = "toaBingoItems",
+		name = "Tombs of Amascut",
+		description = "Items to track from TOA, separated by commas",
+		position = 3,
+		section = bingoTilesSection
+	)
+	default String toaBingoItems()
+	{
+		return "";
 	}
 }

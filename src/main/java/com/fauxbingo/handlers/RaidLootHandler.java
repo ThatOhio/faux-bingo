@@ -6,6 +6,7 @@ import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -14,6 +15,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -39,6 +42,7 @@ public class RaidLootHandler
 	private static final String COX_DUST_MESSAGE_TEXT = "Dust recipients: ";
 	private static final String COX_KIT_MESSAGE_TEXT = "Twisted Kit recipients: ";
 	private static final Pattern TOB_UNIQUE_MESSAGE_PATTERN = Pattern.compile("(.+) found something special: (.+)");
+	private static final Pattern TOA_UNIQUE_MESSAGE_PATTERN = Pattern.compile("Loot recipient: (.+) - (.+)");
 	private static final Pattern KC_MESSAGE_PATTERN = Pattern.compile("([0-9]+)");
 
 	private static final int CoX_Interface_Id = InterfaceID.RAIDS_REWARDS;
@@ -71,7 +75,7 @@ public class RaidLootHandler
 
 	private RaidType raidType;
 	private Integer raidKc;
-	private String raidItemName;
+	private final List<String> rareDrops = new ArrayList<>();
 
 	public RaidLootHandler(
 		Client client,
@@ -228,40 +232,50 @@ public class RaidLootHandler
 			}
 		}
 
+		// Check for TOA unique drops
+		Matcher toaUnique = TOA_UNIQUE_MESSAGE_PATTERN.matcher(chatMessage);
+		if (toaUnique.matches())
+		{
+			final String lootRecipient = Text.sanitize(toaUnique.group(1)).trim();
+			if (lootRecipient.equalsIgnoreCase(getLocalPlayerName()))
+			{
+				rareDrops.add(toaUnique.group(2).trim());
+			}
+			return;
+		}
+
 		// Check for COX unique drops
 		Matcher coxUnique = COX_UNIQUE_MESSAGE_PATTERN.matcher(chatMessage);
 		if (coxUnique.matches())
 		{
 			final String lootRecipient = Text.sanitize(coxUnique.group(1)).trim();
-			final String dropName = coxUnique.group(2).trim();
-
-			if (lootRecipient.equals(Text.sanitize(Objects.requireNonNull(client.getLocalPlayer().getName()))))
+			if (lootRecipient.equalsIgnoreCase(getLocalPlayerName()))
 			{
-				raidItemName = dropName;
-				// Note: COX uniques are sent when widget loads
+				rareDrops.add(coxUnique.group(2).trim());
 			}
+			return;
 		}
 
 		// Check for COX metamorphic dust
 		if (chatMessage.startsWith(COX_DUST_MESSAGE_TEXT))
 		{
-			final String dustRecipient = Text.removeTags(chatMessage).substring(COX_DUST_MESSAGE_TEXT.length());
-			
-			if (dustRecipient.equals(Text.sanitize(Objects.requireNonNull(client.getLocalPlayer().getName()))))
+			final String dustRecipients = Text.removeTags(chatMessage).substring(COX_DUST_MESSAGE_TEXT.length());
+			if (dustRecipients.toLowerCase().contains(getLocalPlayerName().toLowerCase()))
 			{
-				raidItemName = "Metamorphic dust";
+				rareDrops.add("Metamorphic dust");
 			}
+			return;
 		}
 
 		// Check for COX twisted kit
 		if (chatMessage.startsWith(COX_KIT_MESSAGE_TEXT))
 		{
-			final String kitRecipient = Text.removeTags(chatMessage).substring(COX_KIT_MESSAGE_TEXT.length());
-			
-			if (kitRecipient.equals(Text.sanitize(Objects.requireNonNull(client.getLocalPlayer().getName()))))
+			final String kitRecipients = Text.removeTags(chatMessage).substring(COX_KIT_MESSAGE_TEXT.length());
+			if (kitRecipients.toLowerCase().contains(getLocalPlayerName().toLowerCase()))
 			{
-				raidItemName = "Twisted ancestral colour kit";
+				rareDrops.add("Twisted ancestral colour kit");
 			}
+			return;
 		}
 
 		// Check for TOB unique drops
@@ -269,23 +283,18 @@ public class RaidLootHandler
 		if (tobUnique.matches())
 		{
 			final String lootRecipient = Text.sanitize(tobUnique.group(1)).trim();
-			final String dropName = tobUnique.group(2).trim();
-
-			if (lootRecipient.equals(Text.sanitize(Objects.requireNonNull(client.getLocalPlayer().getName()))))
+			if (lootRecipient.equalsIgnoreCase(getLocalPlayerName()))
 			{
-				raidItemName = dropName;
-				// Note: TOB uniques are sent when widget loads
+				rareDrops.add(tobUnique.group(2).trim());
 			}
+			return;
 		}
 	}
 
 	private void handleRaidRewardWidget(int groupId)
 	{
-		// We now primarily handle raid loot through ItemContainerChanged for better reliability.
-		// However, we can still use this as a trigger if needed, but we must avoid duplicate processing.
-		if (raidType == null && raidItemName == null)
+		if (raidType == null && rareDrops.isEmpty())
 		{
-			// Already processed or no raid data available
 			return;
 		}
 
@@ -295,24 +304,23 @@ public class RaidLootHandler
 			return;
 		}
 
-		// Process rare drop from chat
-		if (raidItemName != null)
+		// Process rare drops from chat
+		for (String itemName : rareDrops)
 		{
-			sendRaidLootNotification(raidItemName, raidName, raidKc);
+			sendRaidLootNotification(itemName, raidName, raidKc);
 		}
 
 		// Check bingo items from widget
 		checkBingoItems(groupId, raidName);
 
-		// Reset state so ItemContainerChanged doesn't process it again
+		// Reset state
 		resetState();
 	}
 
 	private void handleRaidInventory(int containerId, ItemContainer itemContainer)
 	{
-		if (raidType == null && raidItemName == null)
+		if (raidType == null && rareDrops.isEmpty())
 		{
-			// Already processed or no raid data available
 			return;
 		}
 
@@ -322,14 +330,14 @@ public class RaidLootHandler
 			return;
 		}
 
-		// 1. Handle rare drop if detected from chat
-		if (raidItemName != null)
+		// 1. Handle rare drops from chat
+		for (String itemName : rareDrops)
 		{
-			sendRaidLootNotification(raidItemName, raidName, raidKc);
+			sendRaidLootNotification(itemName, raidName, raidKc);
 		}
 
-		// 2. Handle bingo items from the container
-		checkBingoItems(itemContainer, raidName);
+		// 2. Handle all items in container (Bingo + Value)
+		processContainerItems(itemContainer, raidName);
 
 		// Reset state
 		resetState();
@@ -418,8 +426,8 @@ public class RaidLootHandler
 				String itemName = itemManager.getItemComposition(itemId).getName();
 				if (LootMatcher.matchesAny(itemName, bingoItems) || LootMatcher.matchesAny(itemName, otherBingoItems))
 				{
-					// If this item was already identified as the rare drop, we don't need a second notification
-					if (raidItemName != null && itemName.equalsIgnoreCase(raidItemName))
+					// Avoid duplicates if this item was already notified as a rare drop
+					if (isRareDrop(itemName))
 					{
 						continue;
 					}
@@ -429,34 +437,104 @@ public class RaidLootHandler
 		}
 	}
 
-	private void checkBingoItems(ItemContainer itemContainer, String raidName)
+	private boolean isRareDrop(String itemName)
+	{
+		return rareDrops.stream().anyMatch(drop -> drop.equalsIgnoreCase(itemName));
+	}
+
+	private void processContainerItems(ItemContainer itemContainer, String raidName)
 	{
 		int id = getContainerInterfaceId(itemContainer.getId());
 		List<String> bingoItems = getBingoItems(id);
 		List<String> otherBingoItems = getOtherBingoItems();
 
-		if (bingoItems.isEmpty() && otherBingoItems.isEmpty())
-		{
-			return;
-		}
-
+		long totalValue = 0;
+		List<LootRecord.LootItem> allItems = new ArrayList<>();
+		
 		for (Item item : itemContainer.getItems())
 		{
 			int itemId = item.getId();
 			if (itemId != -1)
 			{
 				String itemName = itemManager.getItemComposition(itemId).getName();
+				int quantity = item.getQuantity();
+				int price = itemManager.getItemPrice(itemId);
+				totalValue += (long) price * quantity;
+				
+				allItems.add(LootRecord.LootItem.builder()
+					.id(itemId)
+					.name(itemName)
+					.quantity(quantity)
+					.price(price)
+					.build());
+
 				if (LootMatcher.matchesAny(itemName, bingoItems) || LootMatcher.matchesAny(itemName, otherBingoItems))
 				{
-					// If this item was already identified as the rare drop, we don't need a second notification
-					if (raidItemName != null && itemName.equalsIgnoreCase(raidItemName))
+					// Avoid duplicates if this item was already notified as a rare drop
+					if (isRareDrop(itemName))
 					{
 						continue;
 					}
-					sendBingoLootNotification(itemName, item.getQuantity(), raidName, raidKc);
+					sendBingoLootNotification(itemName, quantity, raidName, raidKc);
 				}
 			}
 		}
+
+		if (totalValue >= config.minLootValue())
+		{
+			sendValuableLootNotification(allItems, totalValue, raidName, raidKc);
+		}
+		else
+		{
+			// Always log to the external API if enabled
+			logGeneralLoot(allItems, totalValue, raidName, raidKc);
+		}
+	}
+
+	private void logGeneralLoot(List<LootRecord.LootItem> items, long totalValue, String raidName, Integer kc)
+	{
+		LootRecord lootRecord = LootRecord.builder()
+			.source(raidName)
+			.items(items)
+			.totalValue(totalValue)
+			.kc(kc)
+			.build();
+
+		logService.log("RAID_LOOT", lootRecord);
+	}
+
+	private void sendValuableLootNotification(List<LootRecord.LootItem> items, long totalValue, String raidName, Integer kc)
+	{
+		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
+		
+		StringBuilder lootString = new StringBuilder();
+		for (LootRecord.LootItem item : items)
+		{
+			if (lootString.length() > 0) lootString.append(", ");
+			lootString.append(item.getQuantity()).append(" x ").append(item.getName());
+		}
+
+		StringBuilder message = new StringBuilder();
+		message.append(String.format("**%s** just received loot from %s: %s (Total value: %,d gp)",
+			playerName, raidName, lootString.toString(), totalValue));
+		
+		if (kc != null && kc > 0)
+		{
+			message.append(String.format("\nKill Count: **%d**", kc));
+		}
+
+		String mainItem = items.size() == 1 ? items.get(0).getName() : null;
+
+		if (config.sendScreenshot())
+		{
+			takeScreenshotAndSend(message.toString(), mainItem, WebhookService.WebhookCategory.RAID_LOOT);
+		}
+		else
+		{
+			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null, mainItem, WebhookService.WebhookCategory.RAID_LOOT);
+		}
+
+		logGeneralLoot(items, totalValue, raidName, kc);
 	}
 
 	private int getContainerInterfaceId(int containerId)
@@ -548,7 +626,7 @@ public class RaidLootHandler
 
 	private void sendRaidLootNotification(String itemName, String raidName, Integer kc)
 	{
-		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
+		String playerName = getLocalPlayerName();
 		StringBuilder message = new StringBuilder();
 		message.append(String.format("**%s** just received a rare drop from %s: **%s**!", 
 			playerName, raidName, itemName));
@@ -604,6 +682,11 @@ public class RaidLootHandler
 	{
 		raidType = null;
 		raidKc = null;
-		raidItemName = null;
+		rareDrops.clear();
+	}
+
+	private String getLocalPlayerName()
+	{
+		return client.getLocalPlayer() != null ? Text.sanitize(client.getLocalPlayer().getName()) : "Player";
 	}
 }

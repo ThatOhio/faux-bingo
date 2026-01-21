@@ -389,6 +389,121 @@ public class RaidLootHandlerTest
 	}
 
 	@Test
+	public void testValuableLootNotification()
+	{
+		// Mock container with valuable regular loot (not bingo, not rare drop)
+		// 100 x Dragon arrow = 100 * 2000 = 200,000
+		// 1 x Dexterous prayer scroll = 1,200,000
+		// Total = 1,400,000 (> 1,000,000 threshold)
+		when(config.minLootValue()).thenReturn(1000000);
+
+		when(itemContainer.getId()).thenReturn(581); // CoX Container
+		when(itemContainer.getItems()).thenReturn(new Item[]{
+			new Item(1, 100), // Dragon arrow
+			new Item(2, 1)    // Dexterous prayer scroll
+		});
+
+		ItemComposition arrowComp = mock(ItemComposition.class);
+		when(arrowComp.getName()).thenReturn("Dragon arrow");
+		when(itemManager.getItemComposition(1)).thenReturn(arrowComp);
+		when(itemManager.getItemPrice(1)).thenReturn(2000);
+
+		ItemComposition scrollComp = mock(ItemComposition.class);
+		when(scrollComp.getName()).thenReturn("Dexterous prayer scroll");
+		when(itemManager.getItemComposition(2)).thenReturn(scrollComp);
+		when(itemManager.getItemPrice(2)).thenReturn(1200000);
+
+		// KC Message to set context
+		ChatMessage kcEvent = new ChatMessage();
+		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
+		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
+		raidLootHandler.createChatHandler().handle(kcEvent);
+
+		// Container Changed event
+		ItemContainerChanged event = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(event);
+
+		// Should send a webhook because total value is above threshold
+		verify(webhookService).sendWebhook(
+			anyString(),
+			contains("Total value: 1,400,000 gp"),
+			isNull(),
+			any(),
+			any()
+		);
+	}
+
+	@Test
+	public void testToaTeammateUniqueIgnored()
+	{
+		// ToA unique drop message for teammate
+		ChatMessage uniqueEvent = new ChatMessage();
+		uniqueEvent.setType(ChatMessageType.GAMEMESSAGE);
+		uniqueEvent.setMessage("Loot recipient: Teammate - Tumeken's shadow (uncharged)");
+		raidLootHandler.createChatHandler().handle(uniqueEvent);
+
+		// Widget Loaded for ToA
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(775); // ToA Reward Chest
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		verify(webhookService, never()).sendWebhook(anyString(), contains("received a rare drop"), any(), anyString(), any());
+	}
+
+	@Test
+	public void testToaLocalPlayerUnique()
+	{
+		// ToA unique drop message for local player
+		ChatMessage uniqueEvent = new ChatMessage();
+		uniqueEvent.setType(ChatMessageType.GAMEMESSAGE);
+		uniqueEvent.setMessage("Loot recipient: TestPlayer - Tumeken's shadow (uncharged)");
+		raidLootHandler.createChatHandler().handle(uniqueEvent);
+
+		// Widget Loaded for ToA
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(775); // ToA Reward Chest
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		verify(webhookService).sendWebhook(
+			anyString(),
+			contains("TestPlayer** just received a rare drop from Tombs of Amascut: **Tumeken's shadow (uncharged)**!"),
+			isNull(),
+			eq("Tumeken's shadow (uncharged)"),
+			eq(WebhookService.WebhookCategory.RAID_LOOT)
+		);
+	}
+
+	@Test
+	public void testCoxDustTeammateIgnored()
+	{
+		ChatMessage dustEvent = new ChatMessage();
+		dustEvent.setType(ChatMessageType.GAMEMESSAGE);
+		dustEvent.setMessage("Dust recipients: Teammate1, Teammate2");
+		raidLootHandler.createChatHandler().handle(dustEvent);
+
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		verify(webhookService, never()).sendWebhook(anyString(), contains("Metamorphic dust"), any(), anyString(), any());
+	}
+
+	@Test
+	public void testCoxDustLocalPlayer()
+	{
+		ChatMessage dustEvent = new ChatMessage();
+		dustEvent.setType(ChatMessageType.GAMEMESSAGE);
+		dustEvent.setMessage("Dust recipients: Teammate1, TestPlayer");
+		raidLootHandler.createChatHandler().handle(dustEvent);
+
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		verify(webhookService).sendWebhook(anyString(), contains("Metamorphic dust"), isNull(), eq("Metamorphic dust"), any());
+	}
+
+	@Test
 	public void testDuplicatePrevention()
 	{
 		// Mock unique drop from chat

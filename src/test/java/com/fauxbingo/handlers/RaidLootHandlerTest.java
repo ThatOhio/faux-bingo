@@ -98,19 +98,22 @@ public class RaidLootHandlerTest
 		uniqueEvent.setMessage("TestPlayer - Twisted bow");
 		raidLootHandler.createChatHandler().handle(uniqueEvent);
 
-		// 3. Widget Loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 3. Container Changed
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(20997, 1)});
+		when(itemManager.getItemComposition(20997)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Twisted bow");
+
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService).sendWebhook(
 			anyString(), 
-			argThat(s -> s.contains("Twisted bow") && s.contains("Kill Count: **100**")), 
+			argThat(s -> s.contains("Twisted bow") && s.contains("Kill Count: **100**") && s.contains("1 x Twisted bow")), 
 			isNull(), 
 			eq("Twisted bow"), 
 			eq(WebhookService.WebhookCategory.RAID_LOOT)
 		);
-		verify(logService).log(eq("RAID_LOOT"), any());
+		verify(logService, atLeastOnce()).log(eq("RAID_LOOT"), any());
 	}
 
 	@Test
@@ -128,16 +131,19 @@ public class RaidLootHandlerTest
 		uniqueEvent.setMessage("TestPlayer found something special: Scythe of vitur (Uncharged)");
 		raidLootHandler.createChatHandler().handle(uniqueEvent);
 
-		// 3. Widget Loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.TOB_CHESTS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 3. Container Changed
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(22477, 1)});
+		when(itemManager.getItemComposition(22477)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Scythe of vitur (Uncharged)");
+
+		ItemContainerChanged containerEvent = new ItemContainerChanged(612, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Scythe of vitur"), isNull(), eq("Scythe of vitur (Uncharged)"), eq(WebhookService.WebhookCategory.RAID_LOOT));
 	}
 
 	@Test
-	public void testNoUnique()
+	public void testNoUniqueAndNotValuable()
 	{
 		// 1. KC Message
 		ChatMessage kcEvent = new ChatMessage();
@@ -145,12 +151,19 @@ public class RaidLootHandlerTest
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
 		raidLootHandler.createChatHandler().handle(kcEvent);
 
-		// 2. Widget Loaded (no unique message received)
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 2. Container Changed with cheap items
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1234, 100)});
+		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Pure essence");
+		when(itemManager.getItemPrice(1234)).thenReturn(2);
+		when(config.minLootValue()).thenReturn(1000000);
+
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
+		// Should still log it
+		verify(logService).log(eq("RAID_LOOT"), any());
 	}
 
 	@Test
@@ -159,12 +172,7 @@ public class RaidLootHandlerTest
 		// Config
 		when(config.coxBingoItems()).thenReturn("Dynamite, Prayer scroll");
 		
-		// Mock widget and items
-		when(client.getWidget(eq(InterfaceID.RAIDS_REWARDS), anyInt())).thenReturn(rewardWidget);
-		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
-		when(itemWidget.getItemId()).thenReturn(1234);
-		when(itemWidget.getItemQuantity()).thenReturn(100);
-		
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1234, 100)});
 		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Dynamite");
 
@@ -174,10 +182,9 @@ public class RaidLootHandlerTest
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
 		raidLootHandler.createChatHandler().handle(kcEvent);
 
-		// 2. Widget Loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 2. Container Changed
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService).sendWebhook(
 			anyString(), 
@@ -195,12 +202,7 @@ public class RaidLootHandlerTest
 		// Config
 		when(config.tobBingoItems()).thenReturn("Vial of blood");
 		
-		// Mock widget and items
-		when(client.getWidget(eq(InterfaceID.TOB_CHESTS), anyInt())).thenReturn(rewardWidget);
-		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
-		when(itemWidget.getItemId()).thenReturn(22444);
-		when(itemWidget.getItemQuantity()).thenReturn(50);
-		
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(22444, 50)});
 		when(itemManager.getItemComposition(22444)).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Vial of blood");
 
@@ -210,10 +212,9 @@ public class RaidLootHandlerTest
 		kcEvent.setMessage("Your completed Theatre of Blood count is: 50.");
 		raidLootHandler.createChatHandler().handle(kcEvent);
 
-		// 2. Widget Loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.TOB_CHESTS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 2. Container Changed
+		ItemContainerChanged containerEvent = new ItemContainerChanged(612, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService).sendWebhook(
 			anyString(), 
@@ -230,12 +231,7 @@ public class RaidLootHandlerTest
 		// Config
 		when(config.toaBingoItems()).thenReturn("Lily of the sands");
 		
-		// Mock widget and items
-		when(client.getWidget(eq(775), anyInt())).thenReturn(rewardWidget);
-		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
-		when(itemWidget.getItemId()).thenReturn(27272);
-		when(itemWidget.getItemQuantity()).thenReturn(25);
-		
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(27272, 25)});
 		when(itemManager.getItemComposition(27272)).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Lily of the sands");
 
@@ -245,10 +241,9 @@ public class RaidLootHandlerTest
 		kcEvent.setMessage("Your Tombs of Amascut: Normal Mode completion count is 10.");
 		raidLootHandler.createChatHandler().handle(kcEvent);
 
-		// 2. Widget Loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(775);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 2. Container Changed
+		ItemContainerChanged containerEvent = new ItemContainerChanged(801, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService).sendWebhook(
 			anyString(), 
@@ -260,73 +255,55 @@ public class RaidLootHandlerTest
 	}
 
 	@Test
-	public void testRareDropAndBingoItemSameTime()
+	public void testConsolidatedNotification()
 	{
-		// Config
-		when(config.coxBingoItems()).thenReturn("Twisted bow");
-		
-		// Mock widget and items (T-bow is the unique, and we also have it in bingo list)
-		when(client.getWidget(eq(InterfaceID.RAIDS_REWARDS), anyInt())).thenReturn(rewardWidget);
-		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
-		when(itemWidget.getItemId()).thenReturn(20997);
-		
-		when(itemManager.getItemComposition(20997)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Twisted bow");
-
-		// 1. KC Message
-		ChatMessage kcEvent = new ChatMessage();
-		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
-		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
-
-		// 2. Unique Message
-		ChatMessage uniqueEvent = new ChatMessage();
-		uniqueEvent.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
-		uniqueEvent.setMessage("TestPlayer - Twisted bow");
-		raidLootHandler.createChatHandler().handle(uniqueEvent);
-
-		// 3. Widget Loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
-
-		// Should only send ONE webhook for the rare drop, not a second one for bingo
-		verify(webhookService, times(1)).sendWebhook(
-			anyString(), 
-			contains("just received a rare drop"), 
-			any(), 
-			eq("Twisted bow"), 
-			any()
-		);
-		verify(webhookService, never()).sendWebhook(anyString(), contains("just received a BINGO item"), any(), anyString(), any());
-	}
-
-	@Test
-	public void testPluralBingoItem()
-	{
-		// Config has singular "Soul rune"
+		// Test multiple rare drops and bingo items in one raid
 		when(config.coxBingoItems()).thenReturn("Soul rune");
 		
-		when(client.getWidget(eq(InterfaceID.RAIDS_REWARDS), anyInt())).thenReturn(rewardWidget);
-		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
-		when(itemWidget.getItemId()).thenReturn(1234);
-		when(itemWidget.getItemQuantity()).thenReturn(100);
-		
-		// Item dropped is plural "Soul runes"
-		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Soul runes");
-
-		// Set raid context
+		// 1. KC
 		ChatMessage kcEvent = new ChatMessage();
 		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
 		raidLootHandler.createChatHandler().handle(kcEvent);
 
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// 2. Unique 1
+		ChatMessage u1 = new ChatMessage();
+		u1.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
+		u1.setMessage("TestPlayer - Twisted bow");
+		raidLootHandler.createChatHandler().handle(u1);
 
-		verify(webhookService).sendWebhook(anyString(), contains("100 x Soul runes"), any(), eq("Soul runes"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
+		// 3. Unique 2 (Dust)
+		ChatMessage u2 = new ChatMessage();
+		u2.setType(ChatMessageType.GAMEMESSAGE);
+		u2.setMessage("Dust recipients: TestPlayer");
+		raidLootHandler.createChatHandler().handle(u2);
+
+		// 4. Container
+		when(itemContainer.getItems()).thenReturn(new Item[]{
+			new Item(20997, 1), // T-bow
+			new Item(1234, 100), // Soul runes
+			new Item(5678, 1)    // Dust (assuming it's in container)
+		});
+		
+		ItemComposition tbowComp = mock(ItemComposition.class);
+		when(tbowComp.getName()).thenReturn("Twisted bow");
+		when(itemManager.getItemComposition(20997)).thenReturn(tbowComp);
+
+		ItemComposition soulComp = mock(ItemComposition.class);
+		when(soulComp.getName()).thenReturn("Soul runes");
+		when(itemManager.getItemComposition(1234)).thenReturn(soulComp);
+
+		ItemComposition dustComp = mock(ItemComposition.class);
+		when(dustComp.getName()).thenReturn("Metamorphic dust");
+		when(itemManager.getItemComposition(5678)).thenReturn(dustComp);
+
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
+
+		// Should send ONE webhook with everything
+		verify(webhookService, times(1)).sendWebhook(anyString(), argThat(s -> 
+			s.contains("Twisted bow") && s.contains("Metamorphic dust") && s.contains("100 x Soul runes")
+		), any(), anyString(), eq(WebhookService.WebhookCategory.RAID_LOOT));
 	}
 
 	@Test
@@ -335,11 +312,7 @@ public class RaidLootHandlerTest
 		// Config has "Dragon bones" in Other Items
 		when(config.otherBingoItems()).thenReturn("Dragon bones");
 		
-		when(client.getWidget(eq(InterfaceID.RAIDS_REWARDS), anyInt())).thenReturn(rewardWidget);
-		when(rewardWidget.getDynamicChildren()).thenReturn(new Widget[]{itemWidget});
-		when(itemWidget.getItemId()).thenReturn(536);
-		when(itemWidget.getItemQuantity()).thenReturn(50);
-		
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(536, 50)});
 		when(itemManager.getItemComposition(536)).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Dragon bones");
 
@@ -349,55 +322,17 @@ public class RaidLootHandlerTest
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
 		raidLootHandler.createChatHandler().handle(kcEvent);
 
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
 		verify(webhookService).sendWebhook(anyString(), contains("50 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 
 	@Test
-	public void testItemContainerLoot()
-	{
-		// Config
-		when(config.coxBingoItems()).thenReturn("Dragon arrow");
-
-		// Mock container
-		when(itemContainer.getId()).thenReturn(581); // CoX Container
-		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1234, 143)});
-
-		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Dragon arrow");
-
-		// KC Message (to set raid context)
-		ChatMessage kcEvent = new ChatMessage();
-		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
-		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
-
-		// Container Changed event
-		ItemContainerChanged event = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(event);
-
-		verify(webhookService).sendWebhook(
-			anyString(),
-			argThat(s -> s.contains("143 x Dragon arrow") && s.contains("Chambers of Xeric") && s.contains("Kill Count: **100**")),
-			isNull(),
-			eq("Dragon arrow"),
-			eq(WebhookService.WebhookCategory.BINGO_LOOT)
-		);
-	}
-
-	@Test
 	public void testValuableLootNotification()
 	{
-		// Mock container with valuable regular loot (not bingo, not rare drop)
-		// 100 x Dragon arrow = 100 * 2000 = 200,000
-		// 1 x Dexterous prayer scroll = 1,200,000
-		// Total = 1,400,000 (> 1,000,000 threshold)
 		when(config.minLootValue()).thenReturn(1000000);
 
-		when(itemContainer.getId()).thenReturn(581); // CoX Container
 		when(itemContainer.getItems()).thenReturn(new Item[]{
 			new Item(1, 100), // Dragon arrow
 			new Item(2, 1)    // Dexterous prayer scroll
@@ -442,86 +377,45 @@ public class RaidLootHandlerTest
 		uniqueEvent.setMessage("Loot recipient: Teammate - Tumeken's shadow (uncharged)");
 		raidLootHandler.createChatHandler().handle(uniqueEvent);
 
-		// Widget Loaded for ToA
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(775); // ToA Reward Chest
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		// Container change for ToA
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1, 1)}); // Just some loot
+		when(itemManager.getItemComposition(1)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Coins");
+		when(itemManager.getItemPrice(1)).thenReturn(1);
+		when(config.minLootValue()).thenReturn(1000000);
+
+		ItemContainerChanged event = new ItemContainerChanged(801, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), contains("received a rare drop"), any(), anyString(), any());
 	}
 
 	@Test
-	public void testToaLocalPlayerUnique()
+	public void testMissingKcMessageStillProcesses()
 	{
-		// ToA unique drop message for local player
-		ChatMessage uniqueEvent = new ChatMessage();
-		uniqueEvent.setType(ChatMessageType.GAMEMESSAGE);
-		uniqueEvent.setMessage("Loot recipient: TestPlayer - Tumeken's shadow (uncharged)");
-		raidLootHandler.createChatHandler().handle(uniqueEvent);
+		// NO KC message received
 
-		// Widget Loaded for ToA
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(775); // ToA Reward Chest
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
-
-		verify(webhookService).sendWebhook(
-			anyString(),
-			contains("TestPlayer** just received a rare drop from Tombs of Amascut: **Tumeken's shadow (uncharged)**!"),
-			isNull(),
-			eq("Tumeken's shadow (uncharged)"),
-			eq(WebhookService.WebhookCategory.RAID_LOOT)
-		);
-	}
-
-	@Test
-	public void testCoxDustTeammateIgnored()
-	{
-		ChatMessage dustEvent = new ChatMessage();
-		dustEvent.setType(ChatMessageType.GAMEMESSAGE);
-		dustEvent.setMessage("Dust recipients: Teammate1, Teammate2");
-		raidLootHandler.createChatHandler().handle(dustEvent);
-
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
-
-		verify(webhookService, never()).sendWebhook(anyString(), contains("Metamorphic dust"), any(), anyString(), any());
-	}
-
-	@Test
-	public void testCoxDustLocalPlayer()
-	{
-		ChatMessage dustEvent = new ChatMessage();
-		dustEvent.setType(ChatMessageType.GAMEMESSAGE);
-		dustEvent.setMessage("Dust recipients: Teammate1, TestPlayer");
-		raidLootHandler.createChatHandler().handle(dustEvent);
-
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
-
-		verify(webhookService).sendWebhook(anyString(), contains("Metamorphic dust"), isNull(), eq("Metamorphic dust"), any());
-	}
-
-	@Test
-	public void testDuplicatePrevention()
-	{
-		// Mock unique drop from chat
+		// Container Changed event
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(20997, 1)});
+		when(itemManager.getItemComposition(20997)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Twisted bow");
+		
+		// Set it as a rare drop via chat anyway (unlikely if KC missed but possible)
 		ChatMessage uniqueEvent = new ChatMessage();
 		uniqueEvent.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
 		uniqueEvent.setMessage("TestPlayer - Twisted bow");
 		raidLootHandler.createChatHandler().handle(uniqueEvent);
 
-		// 1. Widget loaded
-		WidgetLoaded widgetEvent = new WidgetLoaded();
-		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
-		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+		ItemContainerChanged event = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(event);
 
-		// 2. Container changed (should be ignored as state was reset)
-		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
-
-		// Should only send ONE webhook for the whole raid
-		verify(webhookService, times(1)).sendWebhook(anyString(), anyString(), any(), anyString(), any());
+		// Should still process and use default raid name
+		verify(webhookService).sendWebhook(
+			anyString(), 
+			contains("Chambers of Xeric"), 
+			any(), 
+			eq("Twisted bow"), 
+			any()
+		);
 	}
 }

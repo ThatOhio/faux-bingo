@@ -140,7 +140,7 @@ public class LootEventHandler
 			return;
 		}
 
-		List<String> otherBingoItems = Arrays.stream(otherItemsConfig.split(","))
+		List<String> otherBingoItems = Arrays.stream(otherItemsConfig.split("[\n,]"))
 			.map(String::trim)
 			.filter(s -> !s.isEmpty())
 			.collect(Collectors.toList());

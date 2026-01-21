@@ -21,6 +21,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.UsernameChanged;
@@ -118,6 +119,7 @@ public class FauxBingoPlugin extends Plugin
 		eventProcessor.registerHandler(valuableDropHandler);
 		eventProcessor.registerHandler(raidLootHandler.createChatHandler());
 		eventProcessor.registerHandler(raidLootHandler.createWidgetHandler());
+		eventProcessor.registerHandler(raidLootHandler.createItemContainerHandler());
 
 		// Register manual screenshot hotkey
 		manualScreenshotHandler.register();
@@ -184,6 +186,12 @@ public class FauxBingoPlugin extends Plugin
 
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
+	{
+		eventProcessor.processEvent(event);
+	}
+	
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		eventProcessor.processEvent(event);
 	}

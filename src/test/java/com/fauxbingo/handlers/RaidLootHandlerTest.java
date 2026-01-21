@@ -6,9 +6,12 @@ import com.fauxbingo.services.WebhookService;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
@@ -63,6 +66,9 @@ public class RaidLootHandlerTest
 
 	@Mock
 	private ItemComposition itemComposition;
+
+	@Mock
+	private ItemContainer itemContainer;
 
 	private RaidLootHandler raidLootHandler;
 
@@ -310,6 +316,12 @@ public class RaidLootHandlerTest
 		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Soul runes");
 
+		// Set raid context
+		ChatMessage kcEvent = new ChatMessage();
+		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
+		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
+		raidLootHandler.createChatHandler().handle(kcEvent);
+
 		WidgetLoaded widgetEvent = new WidgetLoaded();
 		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
 		raidLootHandler.createWidgetHandler().handle(widgetEvent);
@@ -331,10 +343,70 @@ public class RaidLootHandlerTest
 		when(itemManager.getItemComposition(536)).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Dragon bones");
 
+		// Set raid context
+		ChatMessage kcEvent = new ChatMessage();
+		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
+		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
+		raidLootHandler.createChatHandler().handle(kcEvent);
+
 		WidgetLoaded widgetEvent = new WidgetLoaded();
 		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
 		raidLootHandler.createWidgetHandler().handle(widgetEvent);
 
 		verify(webhookService).sendWebhook(anyString(), contains("50 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
+	}
+
+	@Test
+	public void testItemContainerLoot()
+	{
+		// Config
+		when(config.coxBingoItems()).thenReturn("Dragon arrow");
+
+		// Mock container
+		when(itemContainer.getId()).thenReturn(581); // CoX Container
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1234, 143)});
+
+		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Dragon arrow");
+
+		// KC Message (to set raid context)
+		ChatMessage kcEvent = new ChatMessage();
+		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
+		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
+		raidLootHandler.createChatHandler().handle(kcEvent);
+
+		// Container Changed event
+		ItemContainerChanged event = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(event);
+
+		verify(webhookService).sendWebhook(
+			anyString(),
+			argThat(s -> s.contains("143 x Dragon arrow") && s.contains("Chambers of Xeric") && s.contains("Kill Count: **100**")),
+			isNull(),
+			eq("Dragon arrow"),
+			eq(WebhookService.WebhookCategory.BINGO_LOOT)
+		);
+	}
+
+	@Test
+	public void testDuplicatePrevention()
+	{
+		// Mock unique drop from chat
+		ChatMessage uniqueEvent = new ChatMessage();
+		uniqueEvent.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
+		uniqueEvent.setMessage("TestPlayer - Twisted bow");
+		raidLootHandler.createChatHandler().handle(uniqueEvent);
+
+		// 1. Widget loaded
+		WidgetLoaded widgetEvent = new WidgetLoaded();
+		widgetEvent.setGroupId(InterfaceID.RAIDS_REWARDS);
+		raidLootHandler.createWidgetHandler().handle(widgetEvent);
+
+		// 2. Container changed (should be ignored as state was reset)
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.createItemContainerHandler().handle(containerEvent);
+
+		// Should only send ONE webhook for the whole raid
+		verify(webhookService, times(1)).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 	}
 }

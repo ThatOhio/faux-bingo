@@ -17,7 +17,10 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
@@ -41,6 +44,10 @@ public class RaidLootHandler
 	private static final int CoX_Interface_Id = InterfaceID.RAIDS_REWARDS;
 	private static final int ToB_Interface_Id = InterfaceID.TOB_CHESTS;
 	private static final int ToA_Interface_Id = 775; // InterfaceID.TOA_REWARD_CHEST might not be available in all versions
+
+	private static final int CoX_Container_Id = 581;
+	private static final int ToB_Container_Id = 612;
+	private static final int ToA_Container_Id = 801;
 
 	enum RaidType
 	{
@@ -140,6 +147,33 @@ public class RaidLootHandler
 			public Class<WidgetLoaded> getEventType()
 			{
 				return WidgetLoaded.class;
+			}
+		};
+	}
+
+	public EventHandler<ItemContainerChanged> createItemContainerHandler()
+	{
+		return new EventHandler<ItemContainerChanged>()
+		{
+			@Override
+			public void handle(ItemContainerChanged event)
+			{
+				if (!config.includeRaidLoot())
+				{
+					return;
+				}
+
+				int containerId = event.getContainerId();
+				if (containerId == CoX_Container_Id || containerId == ToB_Container_Id || containerId == ToA_Container_Id)
+				{
+					handleRaidInventory(containerId, event.getItemContainer());
+				}
+			}
+
+			@Override
+			public Class<ItemContainerChanged> getEventType()
+			{
+				return ItemContainerChanged.class;
 			}
 		};
 	}
@@ -247,7 +281,42 @@ public class RaidLootHandler
 
 	private void handleRaidRewardWidget(int groupId)
 	{
+		// We now primarily handle raid loot through ItemContainerChanged for better reliability.
+		// However, we can still use this as a trigger if needed, but we must avoid duplicate processing.
+		if (raidType == null && raidItemName == null)
+		{
+			// Already processed or no raid data available
+			return;
+		}
+
 		String raidName = getRaidName(groupId);
+		if (raidName == null)
+		{
+			return;
+		}
+
+		// Process rare drop from chat
+		if (raidItemName != null)
+		{
+			sendRaidLootNotification(raidItemName, raidName, raidKc);
+		}
+
+		// Check bingo items from widget
+		checkBingoItems(groupId, raidName);
+
+		// Reset state so ItemContainerChanged doesn't process it again
+		resetState();
+	}
+
+	private void handleRaidInventory(int containerId, ItemContainer itemContainer)
+	{
+		if (raidType == null && raidItemName == null)
+		{
+			// Already processed or no raid data available
+			return;
+		}
+
+		String raidName = getRaidName(containerId);
 		if (raidName == null)
 		{
 			return;
@@ -259,18 +328,16 @@ public class RaidLootHandler
 			sendRaidLootNotification(raidItemName, raidName, raidKc);
 		}
 
-		// 2. Handle bingo items from the widget
-		checkBingoItems(groupId, raidName);
+		// 2. Handle bingo items from the container
+		checkBingoItems(itemContainer, raidName);
 
 		// Reset state
-		raidItemName = null;
-		raidType = null;
-		raidKc = null;
+		resetState();
 	}
 
-	private String getRaidName(int groupId)
+	private String getRaidName(int id)
 	{
-		if (groupId == CoX_Interface_Id)
+		if (id == CoX_Interface_Id || id == CoX_Container_Id)
 		{
 			if (raidType == RaidType.COX_CM)
 			{
@@ -278,7 +345,7 @@ public class RaidLootHandler
 			}
 			return "Chambers of Xeric";
 		}
-		else if (groupId == ToB_Interface_Id)
+		else if (id == ToB_Interface_Id || id == ToB_Container_Id)
 		{
 			if (raidType == RaidType.TOB_SM)
 			{
@@ -290,7 +357,7 @@ public class RaidLootHandler
 			}
 			return "Theatre of Blood";
 		}
-		else if (groupId == ToA_Interface_Id)
+		else if (id == ToA_Interface_Id || id == ToA_Container_Id)
 		{
 			if (raidType == RaidType.TOA_EXPERT)
 			{
@@ -307,45 +374,13 @@ public class RaidLootHandler
 
 	private void checkBingoItems(int groupId, String raidName)
 	{
-		String configItems = "";
-		if (groupId == CoX_Interface_Id)
-		{
-			configItems = config.coxBingoItems();
-		}
-		else if (groupId == ToB_Interface_Id)
-		{
-			configItems = config.tobBingoItems();
-		}
-		else if (groupId == ToA_Interface_Id)
-		{
-			configItems = config.toaBingoItems();
-		}
+		List<String> bingoItems = getBingoItems(groupId);
+		List<String> otherBingoItems = getOtherBingoItems();
 
-		if (configItems == null)
-		{
-			configItems = "";
-		}
-
-		String otherItems = config.otherBingoItems();
-		if (otherItems == null)
-		{
-			otherItems = "";
-		}
-
-		if (configItems.isEmpty() && otherItems.isEmpty())
+		if (bingoItems.isEmpty() && otherBingoItems.isEmpty())
 		{
 			return;
 		}
-
-		List<String> bingoItems = Arrays.stream(configItems.split(","))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
-
-		List<String> otherBingoItems = Arrays.stream(otherItems.split(","))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
 
 		int childId = -1;
 		if (groupId == CoX_Interface_Id) childId = 1;
@@ -364,6 +399,12 @@ public class RaidLootHandler
 		}
 
 		Widget[] children = rewardWidget.getDynamicChildren();
+		if (children == null || children.length == 0)
+		{
+			// Try static children as a fallback
+			children = rewardWidget.getStaticChildren();
+		}
+
 		if (children == null || children.length == 0)
 		{
 			return;
@@ -386,6 +427,85 @@ public class RaidLootHandler
 				}
 			}
 		}
+	}
+
+	private void checkBingoItems(ItemContainer itemContainer, String raidName)
+	{
+		int id = getContainerInterfaceId(itemContainer.getId());
+		List<String> bingoItems = getBingoItems(id);
+		List<String> otherBingoItems = getOtherBingoItems();
+
+		if (bingoItems.isEmpty() && otherBingoItems.isEmpty())
+		{
+			return;
+		}
+
+		for (Item item : itemContainer.getItems())
+		{
+			int itemId = item.getId();
+			if (itemId != -1)
+			{
+				String itemName = itemManager.getItemComposition(itemId).getName();
+				if (LootMatcher.matchesAny(itemName, bingoItems) || LootMatcher.matchesAny(itemName, otherBingoItems))
+				{
+					// If this item was already identified as the rare drop, we don't need a second notification
+					if (raidItemName != null && itemName.equalsIgnoreCase(raidItemName))
+					{
+						continue;
+					}
+					sendBingoLootNotification(itemName, item.getQuantity(), raidName, raidKc);
+				}
+			}
+		}
+	}
+
+	private int getContainerInterfaceId(int containerId)
+	{
+		if (containerId == CoX_Container_Id) return CoX_Interface_Id;
+		if (containerId == ToB_Container_Id) return ToB_Interface_Id;
+		if (containerId == ToA_Container_Id) return ToA_Interface_Id;
+		return -1;
+	}
+
+	private List<String> getBingoItems(int id)
+	{
+		String configItems = "";
+		if (id == CoX_Interface_Id || id == CoX_Container_Id)
+		{
+			configItems = config.coxBingoItems();
+		}
+		else if (id == ToB_Interface_Id || id == ToB_Container_Id)
+		{
+			configItems = config.tobBingoItems();
+		}
+		else if (id == ToA_Interface_Id || id == ToA_Container_Id)
+		{
+			configItems = config.toaBingoItems();
+		}
+
+		if (configItems == null || configItems.isEmpty())
+		{
+			return Collections.emptyList();
+		}
+
+		return Arrays.stream(configItems.split("[\n,]"))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.collect(Collectors.toList());
+	}
+
+	private List<String> getOtherBingoItems()
+	{
+		String otherItems = config.otherBingoItems();
+		if (otherItems == null || otherItems.isEmpty())
+		{
+			return Collections.emptyList();
+		}
+
+		return Arrays.stream(otherItems.split("[\n,]"))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.collect(Collectors.toList());
 	}
 
 	private void sendBingoLootNotification(String itemName, int quantity, String raidName, Integer kc)

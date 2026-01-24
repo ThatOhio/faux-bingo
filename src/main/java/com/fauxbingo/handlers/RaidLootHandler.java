@@ -332,7 +332,15 @@ public class RaidLootHandler
 			return;
 		}
 
-		processRaidLoot(raidName, itemContainer);
+		try
+		{
+			processRaidLoot(raidName, itemContainer);
+		}
+		finally
+		{
+			// Clear per-raid rare drop state after loot is processed to avoid replaying on later chests.
+			rareDrops.clear();
+		}
 		raidProcessed = true;
 		lastProcessedTime = System.currentTimeMillis();
 	}

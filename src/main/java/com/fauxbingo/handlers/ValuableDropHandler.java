@@ -2,10 +2,10 @@ package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
-import java.awt.image.BufferedImage;
 import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.Collections;
@@ -18,11 +18,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
-import net.runelite.client.ui.DrawManager;
 
 /**
  * Handles valuable drop notifications from chat messages.
- * Detects when the game announces a valuable drop above the configured threshold.
+ * Detects when the game announces a valuable drop. Logs all; webhook only when >= minLootValue.
  */
 @Slf4j
 public class ValuableDropHandler implements EventHandler<ChatMessage>
@@ -35,7 +34,7 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 	private final FauxBingoConfig config;
 	private final WebhookService webhookService;
 	private final LogService logService;
-	private final DrawManager drawManager;
+	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 
 	public ValuableDropHandler(
@@ -43,14 +42,14 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		FauxBingoConfig config,
 		WebhookService webhookService,
 		LogService logService,
-		DrawManager drawManager,
+		ScreenshotService screenshotService,
 		ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
 		this.webhookService = webhookService;
 		this.logService = logService;
-		this.drawManager = drawManager;
+		this.screenshotService = screenshotService;
 		this.executor = executor;
 	}
 
@@ -76,8 +75,9 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 			String[] valuableDrop = matcher.group(1).split(" \\(");
 			String valuableDropName = (String) Array.get(valuableDrop, 0);
 			String valuableDropValueString = matcher.group(2);
-			
-			if (valuableDropValue >= config.valuableDropThreshold())
+
+			logValuableDrop(valuableDropName, valuableDropValueString);
+			if (valuableDropValue >= config.minLootValue())
 			{
 				sendValuableDropNotification(valuableDropName, valuableDropValueString);
 			}
@@ -152,8 +152,6 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		{
 			webhookService.sendWebhook(config.webhookUrl(), message, null, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
 		}
-
-		logValuableDrop(itemName, itemValue);
 	}
 
 	private String cleanItemName(String itemName)
@@ -185,17 +183,15 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 
 	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
 	{
-		drawManager.requestNextFrameListener(image -> {
-			executor.execute(() -> {
-				try
-				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, category);
-				}
-				catch (Exception e)
-				{
-					log.error("Error sending webhook with screenshot for {}", category, e);
-				}
-			});
-		});
+		screenshotService.requestScreenshot(image -> executor.execute(() -> {
+			try
+			{
+				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, category);
+			}
+			catch (Exception e)
+			{
+				log.error("Error sending webhook with screenshot for {}", category, e);
+			}
+		}));
 	}
 }

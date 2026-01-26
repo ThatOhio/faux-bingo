@@ -2,10 +2,10 @@ package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -26,9 +26,7 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.widgets.Widget;
 import net.runelite.client.game.ItemManager;
-import net.runelite.client.ui.DrawManager;
 import net.runelite.client.util.Text;
 
 /**
@@ -69,7 +67,7 @@ public class RaidLootHandler
 	private final FauxBingoConfig config;
 	private final WebhookService webhookService;
 	private final LogService logService;
-	private final DrawManager drawManager;
+	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final ItemManager itemManager;
 
@@ -84,7 +82,7 @@ public class RaidLootHandler
 		FauxBingoConfig config,
 		WebhookService webhookService,
 		LogService logService,
-		DrawManager drawManager,
+		ScreenshotService screenshotService,
 		ScheduledExecutorService executor,
 		ItemManager itemManager)
 	{
@@ -92,7 +90,7 @@ public class RaidLootHandler
 		this.config = config;
 		this.webhookService = webhookService;
 		this.logService = logService;
-		this.drawManager = drawManager;
+		this.screenshotService = screenshotService;
 		this.executor = executor;
 		this.itemManager = itemManager;
 	}
@@ -570,18 +568,16 @@ public class RaidLootHandler
 
 	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
 	{
-		drawManager.requestNextFrameListener(image -> {
-			executor.execute(() -> {
-				try
-				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, category);
-				}
-				catch (Exception e)
-				{
-					log.error("Error sending webhook with screenshot for raid loot", e);
-				}
-			});
-		});
+		screenshotService.requestScreenshot(image -> executor.execute(() -> {
+			try
+			{
+				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, category);
+			}
+			catch (Exception e)
+			{
+				log.error("Error sending webhook with screenshot for raid loot", e);
+			}
+		}));
 	}
 
 	public void resetState()

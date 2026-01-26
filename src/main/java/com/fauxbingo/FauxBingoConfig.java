@@ -160,10 +160,34 @@ public interface FauxBingoConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "screenshotHidePrivateMessages",
+		name = "Hide PMs in Screenshots",
+		description = "Hide private message windows before taking webhook screenshots, then restore them",
+		position = 4,
+		section = discordAlertsSection
+	)
+	default boolean screenshotHidePrivateMessages()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "screenshotHideChat",
+		name = "Hide Chat in Screenshots",
+		description = "Hide the main chat area before taking webhook screenshots, then restore it",
+		position = 5,
+		section = discordAlertsSection
+	)
+	default boolean screenshotHideChat()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "includePets",
 		name = "Include Pets",
 		description = "Send webhook notification when receiving a pet",
-		position = 4,
+		position = 6,
 		section = discordAlertsSection
 	)
 	default boolean includePets()
@@ -175,7 +199,7 @@ public interface FauxBingoConfig extends Config
 		keyName = "includeCollectionLog",
 		name = "Include Collection Log",
 		description = "Send webhook notification for new collection log entries",
-		position = 5,
+		position = 7,
 		section = discordAlertsSection
 	)
 	default boolean includeCollectionLog()
@@ -187,7 +211,7 @@ public interface FauxBingoConfig extends Config
 		keyName = "includeValuableDrops",
 		name = "Include Valuable Drops",
 		description = "Send webhook notification for valuable drops above threshold",
-		position = 6,
+		position = 8,
 		section = discordAlertsSection
 	)
 	default boolean includeValuableDrops()
@@ -196,22 +220,10 @@ public interface FauxBingoConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "valuableDropThreshold",
-		name = "Valuable Drop Threshold",
-		description = "Minimum value in coins for valuable drop notifications",
-		position = 7,
-		section = discordAlertsSection
-	)
-	default int valuableDropThreshold()
-	{
-		return 1000000;
-	}
-
-	@ConfigItem(
 		keyName = "includeRaidLoot",
 		name = "Include Raid Loot",
 		description = "Send webhook notification for raid unique drops (COX/TOB)",
-		position = 8,
+		position = 9,
 		section = discordAlertsSection
 	)
 	default boolean includeRaidLoot()
@@ -222,8 +234,8 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 		keyName = "minLootValue",
 		name = "Min Loot Value",
-		description = "Minimum value of regular loot to be logged",
-		position = 9,
+		description = "Min value (gp) for loot webhooks. Valuable drops, NPC/player loot, raid chests.",
+		position = 10,
 		section = discordAlertsSection
 	)
 	default int minLootValue()

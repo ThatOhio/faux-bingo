@@ -2,17 +2,16 @@ package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.google.common.collect.ImmutableList;
-import java.awt.image.BufferedImage;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
-import net.runelite.client.ui.DrawManager;
 
 /**
  * Handles chat message events to detect pet drops.
@@ -30,7 +29,7 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 	private final FauxBingoConfig config;
 	private final WebhookService webhookService;
 	private final LogService logService;
-	private final DrawManager drawManager;
+	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 
 	public PetChatHandler(
@@ -38,14 +37,14 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 		FauxBingoConfig config,
 		WebhookService webhookService,
 		LogService logService,
-		DrawManager drawManager,
+		ScreenshotService screenshotService,
 		ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
 		this.webhookService = webhookService;
 		this.logService = logService;
-		this.drawManager = drawManager;
+		this.screenshotService = screenshotService;
 		this.executor = executor;
 	}
 
@@ -111,17 +110,15 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 
 	private void takeScreenshotAndSend(String message, String itemName)
 	{
-		drawManager.requestNextFrameListener(image -> {
-			executor.execute(() -> {
-				try
-				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, WebhookService.WebhookCategory.PET);
-				}
-				catch (Exception e)
-				{
-					log.error("Error sending webhook with screenshot for pet drop", e);
-				}
-			});
-		});
+		screenshotService.requestScreenshot(image -> executor.execute(() -> {
+			try
+			{
+				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, WebhookService.WebhookCategory.PET);
+			}
+			catch (Exception e)
+			{
+				log.error("Error sending webhook with screenshot for pet drop", e);
+			}
+		}));
 	}
 }

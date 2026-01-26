@@ -220,22 +220,10 @@ public interface FauxBingoConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "valuableDropThreshold",
-		name = "Valuable Drop Threshold",
-		description = "Minimum value in coins for valuable drop notifications",
-		position = 9,
-		section = discordAlertsSection
-	)
-	default int valuableDropThreshold()
-	{
-		return 1000000;
-	}
-
-	@ConfigItem(
 		keyName = "includeRaidLoot",
 		name = "Include Raid Loot",
 		description = "Send webhook notification for raid unique drops (COX/TOB)",
-		position = 10,
+		position = 9,
 		section = discordAlertsSection
 	)
 	default boolean includeRaidLoot()
@@ -246,8 +234,8 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 		keyName = "minLootValue",
 		name = "Min Loot Value",
-		description = "Minimum value of regular loot to be logged",
-		position = 11,
+		description = "Min value (gp) for loot webhooks. Valuable drops, NPC/player loot, raid chests.",
+		position = 10,
 		section = discordAlertsSection
 	)
 	default int minLootValue()

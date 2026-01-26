@@ -21,7 +21,7 @@ import net.runelite.api.events.ChatMessage;
 
 /**
  * Handles valuable drop notifications from chat messages.
- * Detects when the game announces a valuable drop above the configured threshold.
+ * Detects when the game announces a valuable drop. Logs all; webhook only when >= minLootValue.
  */
 @Slf4j
 public class ValuableDropHandler implements EventHandler<ChatMessage>
@@ -75,8 +75,9 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 			String[] valuableDrop = matcher.group(1).split(" \\(");
 			String valuableDropName = (String) Array.get(valuableDrop, 0);
 			String valuableDropValueString = matcher.group(2);
-			
-			if (valuableDropValue >= config.valuableDropThreshold())
+
+			logValuableDrop(valuableDropName, valuableDropValueString);
+			if (valuableDropValue >= config.minLootValue())
 			{
 				sendValuableDropNotification(valuableDropName, valuableDropValueString);
 			}
@@ -151,8 +152,6 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		{
 			webhookService.sendWebhook(config.webhookUrl(), message, null, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
 		}
-
-		logValuableDrop(itemName, itemValue);
 	}
 
 	private String cleanItemName(String itemName)

@@ -8,8 +8,10 @@ import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.overlay.TeamOverlay;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.WiseOldManService;
+import net.runelite.client.callback.ClientThread;
 import com.fauxbingo.trackers.XpTracker;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
@@ -62,6 +64,9 @@ public class FauxBingoPlugin extends Plugin
 	private DrawManager drawManager;
 
 	@Inject
+	private ClientThread clientThread;
+
+	@Inject
 	private ScheduledExecutorService executor;
 
 	@Inject
@@ -78,6 +83,7 @@ public class FauxBingoPlugin extends Plugin
 
 	private EventProcessor eventProcessor;
 	private WebhookService webhookService;
+	private ScreenshotService screenshotService;
 	private WiseOldManService wiseOldManService;
 	private LogService logService;
 	private LootEventHandler lootEventHandler;
@@ -95,6 +101,7 @@ public class FauxBingoPlugin extends Plugin
 
 		// Initialize services
 		webhookService = new WebhookService(client, okHttpClient, executor);
+		screenshotService = new ScreenshotService(client, clientThread, drawManager, config);
 		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
 		logService = new LogService(client, config, okHttpClient, gson, executor);
 		eventProcessor = new EventProcessor();
@@ -103,12 +110,12 @@ public class FauxBingoPlugin extends Plugin
 		xpTracker = new XpTracker(client, config, wiseOldManService);
 
 		// Initialize handlers
-		lootEventHandler = new LootEventHandler(client, config, itemManager, webhookService, logService, drawManager, executor);
-		petChatHandler = new PetChatHandler(client, config, webhookService, logService, drawManager, executor);
-		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, drawManager, executor);
-		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, drawManager, executor);
-		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, drawManager, executor, itemManager);
-		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, drawManager, executor, keyManager);
+		lootEventHandler = new LootEventHandler(client, config, itemManager, webhookService, logService, screenshotService, executor);
+		petChatHandler = new PetChatHandler(client, config, webhookService, logService, screenshotService, executor);
+		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, screenshotService, executor);
+		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, screenshotService, executor);
+		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, screenshotService, executor, itemManager);
+		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, screenshotService, executor, keyManager);
 
 		// Register event handlers
 		eventProcessor.registerHandler(lootEventHandler.createNpcLootHandler());

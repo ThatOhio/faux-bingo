@@ -2,10 +2,10 @@ package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
-import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -17,7 +17,6 @@ import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
-import net.runelite.client.ui.DrawManager;
 
 /**
  * Handles loot-related events from NPCs and players.
@@ -31,7 +30,7 @@ public class LootEventHandler
 	private final ItemManager itemManager;
 	private final WebhookService webhookService;
 	private final LogService logService;
-	private final DrawManager drawManager;
+	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 
 	public LootEventHandler(
@@ -40,7 +39,7 @@ public class LootEventHandler
 		ItemManager itemManager,
 		WebhookService webhookService,
 		LogService logService,
-		DrawManager drawManager,
+		ScreenshotService screenshotService,
 		ScheduledExecutorService executor)
 	{
 		this.client = client;
@@ -48,7 +47,7 @@ public class LootEventHandler
 		this.itemManager = itemManager;
 		this.webhookService = webhookService;
 		this.logService = logService;
-		this.drawManager = drawManager;
+		this.screenshotService = screenshotService;
 		this.executor = executor;
 	}
 
@@ -193,17 +192,15 @@ public class LootEventHandler
 
 	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
 	{
-		drawManager.requestNextFrameListener(image -> {
-			executor.execute(() -> {
-				try
-				{
-					webhookService.sendWebhook(config.webhookUrl(), message, (BufferedImage) image, itemName, category);
-				}
-				catch (Exception e)
-				{
-					log.error("Error sending webhook with screenshot for {}", category, e);
-				}
-			});
-		});
+		screenshotService.requestScreenshot(image -> executor.execute(() -> {
+			try
+			{
+				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, category);
+			}
+			catch (Exception e)
+			{
+				log.error("Error sending webhook with screenshot for {}", category, e);
+			}
+		}));
 	}
 }

@@ -2,13 +2,13 @@ package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.Player;
 import net.runelite.api.events.ChatMessage;
-import net.runelite.client.ui.DrawManager;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,7 +38,7 @@ public class PetChatHandlerTest
 	private LogService logService;
 
 	@Mock
-	private DrawManager drawManager;
+	private ScreenshotService screenshotService;
 
 	@Mock
 	private ScheduledExecutorService executor;
@@ -51,7 +51,7 @@ public class PetChatHandlerTest
 	@Before
 	public void before()
 	{
-		petChatHandler = new PetChatHandler(client, config, webhookService, logService, drawManager, executor);
+		petChatHandler = new PetChatHandler(client, config, webhookService, logService, screenshotService, executor);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
 		when(config.webhookUrl()).thenReturn("http://webhook");

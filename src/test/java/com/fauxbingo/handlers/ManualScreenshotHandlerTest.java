@@ -1,12 +1,12 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.Client;
 import net.runelite.api.Player;
 import net.runelite.client.input.KeyManager;
-import net.runelite.client.ui.DrawManager;
 import net.runelite.client.util.HotkeyListener;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,7 +31,7 @@ public class ManualScreenshotHandlerTest
 	private WebhookService webhookService;
 
 	@Mock
-	private DrawManager drawManager;
+	private ScreenshotService screenshotService;
 
 	@Mock
 	private ScheduledExecutorService executor;
@@ -47,7 +47,7 @@ public class ManualScreenshotHandlerTest
 	@Before
 	public void before()
 	{
-		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, drawManager, executor, keyManager);
+		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, screenshotService, executor, keyManager);
 		lenient().when(client.getLocalPlayer()).thenReturn(player);
 		lenient().when(player.getName()).thenReturn("TestPlayer");
 		lenient().when(config.webhookUrl()).thenReturn("http://webhook");
@@ -77,6 +77,6 @@ public class ManualScreenshotHandlerTest
 		HotkeyListener listener = captor.getValue();
 		listener.hotkeyPressed();
 
-		verify(drawManager).requestNextFrameListener(any());
+		verify(screenshotService).requestScreenshot(any());
 	}
 }

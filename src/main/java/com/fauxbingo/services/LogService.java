@@ -30,6 +30,8 @@ public class LogService
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 	private static final int BATCH_SIZE = 10;
 	private static final int FLUSH_INTERVAL_SECONDS = 30;
+	private static final String LOGS_PATH = "/api/logs";
+	private static final String DEATHS_PATH = "/api/deaths";
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -48,17 +50,16 @@ public class LogService
 	}
 
 	/**
-	 * Adds an entry to the queue.
+	 * Adds an entry to the queue, or sends death logs to the deaths endpoint.
 	 */
 	public void log(String type, Object data)
 	{
-		if (!config.enableLoggingApi() || config.loggingApiUrl().isEmpty() || client.getGameState() != GameState.LOGGED_IN)
+		if (!config.enableLoggingApi() || client.getGameState() != GameState.LOGGED_IN)
 		{
 			return;
 		}
 
 		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : null;
-		
 		LogEntry entry = LogEntry.builder()
 			.player(playerName)
 			.type(type)
@@ -66,8 +67,22 @@ public class LogService
 			.data(data)
 			.build();
 
-		queue.add(entry);
+		if ("DEATH".equals(type))
+		{
+			String url = buildUrl(DEATHS_PATH);
+			if (url.isEmpty())
+			{
+				return;
+			}
+			sendDeath(entry, url);
+			return;
+		}
 
+		if (buildUrl(LOGS_PATH).isEmpty())
+		{
+			return;
+		}
+		queue.add(entry);
 		if (queue.size() >= BATCH_SIZE)
 		{
 			flushQueue();
@@ -76,7 +91,8 @@ public class LogService
 
 	private synchronized void flushQueue()
 	{
-		if (queue.isEmpty() || config.loggingApiUrl().isEmpty())
+		String logsUrl = buildUrl(LOGS_PATH);
+		if (queue.isEmpty() || logsUrl.isEmpty())
 		{
 			return;
 		}
@@ -93,14 +109,24 @@ public class LogService
 			return;
 		}
 
-		sendBatch(batch);
+		sendBatch(batch, logsUrl);
 	}
 
-	private void sendBatch(List<LogEntry> batch)
+	private String buildUrl(String path)
+	{
+		String base = config.loggingApiUrl();
+		if (base == null || base.isEmpty())
+		{
+			return "";
+		}
+		return base.replaceAll("/$", "") + path;
+	}
+
+	private void sendBatch(List<LogEntry> batch, String url)
 	{
 		String json = gson.toJson(batch);
 		Request request = new Request.Builder()
-			.url(config.loggingApiUrl())
+			.url(url)
 			.post(RequestBody.create(JSON, json))
 			.build();
 
@@ -118,6 +144,34 @@ public class LogService
 				if (!response.isSuccessful())
 				{
 					log.error("API returned error: {} {}", response.code(), response.message());
+				}
+				response.close();
+			}
+		});
+	}
+
+	private void sendDeath(LogEntry entry, String url)
+	{
+		String json = gson.toJson(entry);
+		Request request = new Request.Builder()
+			.url(url)
+			.post(RequestBody.create(JSON, json))
+			.build();
+
+		okHttpClient.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				log.error("Error sending death log to API", e);
+			}
+
+			@Override
+			public void onResponse(Call call, Response response) throws IOException
+			{
+				if (!response.isSuccessful())
+				{
+					log.error("Deaths API returned error: {} {}", response.code(), response.message());
 				}
 				response.close();
 			}

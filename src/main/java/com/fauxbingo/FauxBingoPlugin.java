@@ -1,6 +1,7 @@
 package com.fauxbingo;
 
 import com.fauxbingo.handlers.CollectionLogHandler;
+import com.fauxbingo.handlers.DeathHandler;
 import com.fauxbingo.handlers.LootEventHandler;
 import com.fauxbingo.handlers.ManualScreenshotHandler;
 import com.fauxbingo.handlers.PetChatHandler;
@@ -20,7 +21,9 @@ import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
@@ -92,6 +95,7 @@ public class FauxBingoPlugin extends Plugin
 	private ValuableDropHandler valuableDropHandler;
 	private RaidLootHandler raidLootHandler;
 	private ManualScreenshotHandler manualScreenshotHandler;
+	private DeathHandler deathHandler;
 	private XpTracker xpTracker;
 
 	@Override
@@ -116,6 +120,7 @@ public class FauxBingoPlugin extends Plugin
 		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, screenshotService, executor);
 		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, screenshotService, executor, itemManager);
 		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, screenshotService, executor, keyManager);
+		deathHandler = new DeathHandler(client, logService);
 
 		// Register event handlers
 		eventProcessor.registerHandler(lootEventHandler.createNpcLootHandler());
@@ -127,6 +132,8 @@ public class FauxBingoPlugin extends Plugin
 		eventProcessor.registerHandler(raidLootHandler.createChatHandler());
 		eventProcessor.registerHandler(raidLootHandler.createWidgetHandler());
 		eventProcessor.registerHandler(raidLootHandler.createItemContainerHandler());
+		eventProcessor.registerHandler(deathHandler.createActorDeathHandler());
+		eventProcessor.registerHandler(deathHandler.createInteractingChangedHandler());
 
 		// Register manual screenshot hotkey
 		manualScreenshotHandler.register();
@@ -165,6 +172,18 @@ public class FauxBingoPlugin extends Plugin
 
 		// Reset state
 		resetState();
+	}
+
+	@Subscribe
+	public void onActorDeath(ActorDeath event)
+	{
+		eventProcessor.processEvent(event);
+	}
+
+	@Subscribe
+	public void onInteractingChanged(InteractingChanged event)
+	{
+		eventProcessor.processEvent(event);
 	}
 
 	@Subscribe
@@ -254,6 +273,11 @@ public class FauxBingoPlugin extends Plugin
 		if (raidLootHandler != null)
 		{
 			raidLootHandler.resetState();
+		}
+
+		if (deathHandler != null)
+		{
+			deathHandler.resetState();
 		}
 	}
 

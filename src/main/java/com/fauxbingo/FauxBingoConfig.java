@@ -248,7 +248,7 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 		keyName = "enableLoggingApi",
 		name = "Enable Logging API",
-		description = "Sends loot data to an api to be used for verification and post bingo statistics.",
+		description = "Sends data to the bingo api for verification and post bingo statistics.",
 		warning = "This feature submits your IP address, RSN, and information about your drops to a 3rd-party server not controlled or verified by Runelite developers. This data will be used for bingo tile verification, and post bingo statistics.",
 		position = 1,
 		section = loggingApiSection
@@ -260,14 +260,14 @@ public interface FauxBingoConfig extends Config
 
 	@ConfigItem(
 		keyName = "loggingApiUrl",
-		name = "API URL",
-		description = "The endpoint URL for the external logging API (Please do not change unless you know what you're doing)",
+		name = "API base URL",
+		description = "Base URL for the logging API. Do not change unless you know what you're doing.",
 		position = 2,
 		section = loggingApiSection
 	)
 	default String loggingApiUrl()
 	{
-		return "https://faux-api.thatohio.me/api/logs";
+		return "https://faux-api.thatohio.me";
 	}
 
 	// ========== Bingo Tiles Configuration ==========

@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import lombok.Builder;
@@ -239,6 +241,15 @@ public class WebhookService
 				return "";
 			case BINGO_LOOT:
 				return "*This item is on the bingo list!*";
+			case LOOT:
+				// Extract source from "Loot received from %s: ..."
+				Pattern pattern = Pattern.compile("Loot received from (.*?):");
+				Matcher matcher = pattern.matcher(webhook.getMessage());
+				if (matcher.find())
+				{
+					return String.format("Dropped by: **%s**", matcher.group(1));
+				}
+				return null;
 			default:
 				return null;
 		}

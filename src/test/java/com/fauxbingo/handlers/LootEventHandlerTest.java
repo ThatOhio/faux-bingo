@@ -111,8 +111,8 @@ public class LootEventHandlerTest
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item1, item2));
 
 		lootEventHandler.createNpcLootHandler().handle(event);
-
-		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), isNull(), isNull(), eq(WebhookService.WebhookCategory.LOOT));
+// The most valuable item should now be used as the itemName bundling key
+		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), isNull(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
 	}
 

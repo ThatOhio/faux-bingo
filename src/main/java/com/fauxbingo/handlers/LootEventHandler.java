@@ -112,7 +112,25 @@ public class LootEventHandler
 			String message = String.format("Loot received from %s: %s (Total value: %,d gp)",
 				source, lootString.toString(), totalValue);
 			
-			String itemName = items.size() == 1 ? itemManager.getItemComposition(items.iterator().next().getId()).getName() : null;
+			String itemName = null;
+			if (items.size() == 1)
+			{
+				itemName = itemManager.getItemComposition(items.iterator().next().getId()).getName();
+			}
+			else if (!items.isEmpty())
+			{
+				// Find the most valuable item to use as a bundling key
+				long maxPrice = -1;
+				for (ItemStack item : items)
+				{
+					long price = (long) itemManager.getItemPrice(item.getId()) * item.getQuantity();
+					if (price > maxPrice)
+					{
+						maxPrice = price;
+						itemName = itemManager.getItemComposition(item.getId()).getName();
+					}
+				}
+			}
 
 			if (config.sendScreenshot())
 			{

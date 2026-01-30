@@ -5,9 +5,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +22,7 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.WorldType;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -255,8 +258,62 @@ public class WebhookService
 		}
 	}
 
+	private String getGameModeSuffix()
+	{
+		EnumSet<WorldType> worldTypes = client.getWorldType();
+		boolean isDeadman = false;
+		boolean isLeagues = false;
+		boolean isFreshStart = false;
+		boolean isTournament = false;
+
+		for (WorldType type : worldTypes)
+		{
+			String name = type.name();
+			if (name.equals("DEADMAN"))
+			{
+				isDeadman = true;
+			}
+			else if (name.equals("LEAGUE") || name.equals("SEASONAL"))
+			{
+				isLeagues = true;
+			}
+			else if (name.equals("FRESH_START_WORLD"))
+			{
+				isFreshStart = true;
+			}
+			else if (name.equals("TOURNAMENT_WORLD"))
+			{
+				isTournament = true;
+			}
+		}
+
+		if (isDeadman)
+		{
+			return " (Deadman)";
+		}
+		if (isLeagues)
+		{
+			return " (Leagues)";
+		}
+		if (isFreshStart)
+		{
+			return " (Fresh Start)";
+		}
+		if (isTournament)
+		{
+			return " (Tournament)";
+		}
+		return "";
+	}
+
 	private void processWebhook(String webhookUrls, String message, BufferedImage image)
 	{
+		String suffix = getGameModeSuffix();
+		if (!suffix.isEmpty())
+		{
+			message += suffix;
+		}
+
 		String[] urls = webhookUrls.split("[\n,]");
 
 		byte[] imageBytes = null;

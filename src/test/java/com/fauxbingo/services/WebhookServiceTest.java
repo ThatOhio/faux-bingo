@@ -1,6 +1,8 @@
 package com.fauxbingo.services;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -8,8 +10,10 @@ import java.util.concurrent.TimeUnit;
 import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okio.Buffer;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.WorldType;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -18,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -50,6 +55,7 @@ public class WebhookServiceTest
         when(okHttpClient.newCall(any())).thenReturn(call);
         doReturn(scheduledFuture).when(executor).schedule(any(Runnable.class), anyLong(), any());
         when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS));
     }
 
     @Test
@@ -157,5 +163,92 @@ public class WebhookServiceTest
         assertEquals("http://url2/", requests.get(1).url().toString());
         assertEquals("http://url3/", requests.get(2).url().toString());
         assertEquals("http://url4/", requests.get(3).url().toString());
+    }
+
+    @Test
+    public void testLeaguesGameModeSuffix() throws IOException
+    {
+        // Use SEASONAL as a proxy for Leagues if LEAGUE is not available
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.SEASONAL, WorldType.MEMBERS));
+
+        webhookService.sendWebhook("http://webhook", "Loot message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        assertTrue("Body should contain (Leagues) suffix", body.contains("Loot message (Leagues)"));
+    }
+
+    @Test
+    public void testDeadmanGameModeSuffix() throws IOException
+    {
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.DEADMAN, WorldType.MEMBERS));
+
+        webhookService.sendWebhook("http://webhook", "Loot message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        assertTrue("Body should contain (Deadman) suffix", body.contains("Loot message (Deadman)"));
+    }
+
+    @Test
+    public void testNormalGameModeNoSuffix() throws IOException
+    {
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS, WorldType.PVP));
+
+        webhookService.sendWebhook("http://webhook", "Loot message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        assertTrue("Body should contain the message", body.contains("Loot message"));
+        assertTrue("Body should NOT contain (Leagues) suffix", !body.contains("(Leagues)"));
+        assertTrue("Body should NOT contain (Deadman) suffix", !body.contains("(Deadman)"));
+    }
+
+    @Test
+    public void testTournamentGameModeSuffix() throws IOException
+    {
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.TOURNAMENT_WORLD, WorldType.MEMBERS));
+
+        webhookService.sendWebhook("http://webhook", "Loot message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        assertTrue("Body should contain (Tournament) suffix", body.contains("Loot message (Tournament)"));
     }
 }

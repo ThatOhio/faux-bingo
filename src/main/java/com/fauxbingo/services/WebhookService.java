@@ -6,10 +6,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Random;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.WorldType;
+import com.fauxbingo.FauxBingoConfig;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -42,8 +42,35 @@ public class WebhookService
 	private final OkHttpClient okHttpClient;
 	private final ScheduledExecutorService executor;
 	private final Client client;
+	private final FauxBingoConfig config;
 	private final List<QueuedWebhook> queue = new ArrayList<>();
+	private final Random random = new Random();
 	private ScheduledFuture<?> flushTask = null;
+
+	private static final String[] LEAGUES_MESSAGES = {
+		"This dummy is playing Leagues!",
+		"Leagues: Where the drops are fake and the points don't matter!",
+		"Is it really a grind if you have 16x drop rate?",
+		"Playing Leagues because the main game is too hard."
+	};
+
+	private static final String[] DEADMAN_MESSAGES = {
+		"Look at this brave soul playing Deadman!",
+		"Living life on the edge in DMM!",
+		"One misclick away from a bank rebuild."
+	};
+
+	private static final String[] FRESH_START_MESSAGES = {
+		"Fresh Start, same old mistakes.",
+		"Reliving the glory days in a Fresh Start World.",
+		"Starting over for the 10th time in Fresh Start."
+	};
+
+	private static final String[] TOURNAMENT_MESSAGES = {
+		"Practicing for a win they'll never get in a Tournament World!",
+		"Playing with toys in the sandbox (Tournament World).",
+		"In a Tournament World because they can't afford the gear otherwise."
+	};
 
 	public enum WebhookCategory
 	{
@@ -79,11 +106,12 @@ public class WebhookService
 		private final WebhookCategory category;
 	}
 
-	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor)
+	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor, FauxBingoConfig config)
 	{
 		this.client = client;
 		this.okHttpClient = okHttpClient;
 		this.executor = executor;
+		this.config = config;
 	}
 
 	public void sendWebhook(String webhookUrls, String message, BufferedImage image)
@@ -258,7 +286,7 @@ public class WebhookService
 		}
 	}
 
-	private String getGameModeSuffix()
+	private String getGameModeAnnotation()
 	{
 		EnumSet<WorldType> worldTypes = client.getWorldType();
 		boolean isDeadman = false;
@@ -289,26 +317,34 @@ public class WebhookService
 
 		if (isDeadman)
 		{
-			return " (Deadman)";
+			return config.funnyGameModeMessages()
+				? " (" + DEADMAN_MESSAGES[random.nextInt(DEADMAN_MESSAGES.length)] + ")"
+				: " (Deadman)";
 		}
 		if (isLeagues)
 		{
-			return " (Leagues)";
+			return config.funnyGameModeMessages()
+				? " (" + LEAGUES_MESSAGES[random.nextInt(LEAGUES_MESSAGES.length)] + ")"
+				: " (Leagues)";
 		}
 		if (isFreshStart)
 		{
-			return " (Fresh Start)";
+			return config.funnyGameModeMessages()
+				? " (" + FRESH_START_MESSAGES[random.nextInt(FRESH_START_MESSAGES.length)] + ")"
+				: " (Fresh Start)";
 		}
 		if (isTournament)
 		{
-			return " (Tournament)";
+			return config.funnyGameModeMessages()
+				? " (" + TOURNAMENT_MESSAGES[random.nextInt(TOURNAMENT_MESSAGES.length)] + ")"
+				: " (Tournament)";
 		}
 		return "";
 	}
 
 	private void processWebhook(String webhookUrls, String message, BufferedImage image)
 	{
-		String suffix = getGameModeSuffix();
+		String suffix = getGameModeAnnotation();
 		if (!suffix.isEmpty())
 		{
 			message += suffix;

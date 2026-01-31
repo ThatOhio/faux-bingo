@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -14,6 +15,7 @@ import okio.Buffer;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.WorldType;
+import com.fauxbingo.FauxBingoConfig;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -46,16 +48,20 @@ public class WebhookServiceTest
     @Mock
     private ScheduledFuture<?> scheduledFuture;
 
+    @Mock
+    private FauxBingoConfig config;
+
     private WebhookService webhookService;
 
     @Before
     public void before()
     {
-        webhookService = new WebhookService(client, okHttpClient, executor);
+        webhookService = new WebhookService(client, okHttpClient, executor, config);
         when(okHttpClient.newCall(any())).thenReturn(call);
         doReturn(scheduledFuture).when(executor).schedule(any(Runnable.class), anyLong(), any());
         when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
         when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.MEMBERS));
+        when(config.funnyGameModeMessages()).thenReturn(false);
     }
 
     @Test
@@ -250,5 +256,82 @@ public class WebhookServiceTest
         String body = buffer.readUtf8();
 
         assertTrue("Body should contain (Tournament) suffix", body.contains("Loot message (Tournament)"));
+    }
+
+    @Test
+    public void testFunnyLeaguesMessage() throws IOException
+    {
+        when(config.funnyGameModeMessages()).thenReturn(true);
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.SEASONAL, WorldType.MEMBERS));
+
+        webhookService.sendWebhook("http://webhook", "Loot message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        // Check if any of the funny leagues messages are present
+        List<String> expectedMessages = Arrays.asList(
+            "This dummy is playing Leagues!",
+            "Leagues: Where the drops are fake and the points don't matter!",
+            "Is it really a grind if you have 16x drop rate?",
+            "Playing Leagues because the main game is too hard."
+        );
+
+        boolean found = false;
+        for (String msg : expectedMessages)
+        {
+            if (body.contains("Loot message (" + msg + ")"))
+            {
+                found = true;
+                break;
+            }
+        }
+        assertTrue("Body should contain one of the funny leagues messages", found);
+    }
+
+    @Test
+    public void testFunnyDeadmanMessage() throws IOException
+    {
+        when(config.funnyGameModeMessages()).thenReturn(true);
+        when(client.getWorldType()).thenReturn(EnumSet.of(WorldType.DEADMAN, WorldType.MEMBERS));
+
+        webhookService.sendWebhook("http://webhook", "Loot message", null);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getValue().run();
+
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        List<String> expectedMessages = Arrays.asList(
+            "Look at this brave soul playing Deadman!",
+            "Living life on the edge in DMM!",
+            "One misclick away from a bank rebuild.",
+            "Deadman Mode: Where everyone is a target."
+        );
+
+        boolean found = false;
+        for (String msg : expectedMessages)
+        {
+            if (body.contains("Loot message (" + msg + ")"))
+            {
+                found = true;
+                break;
+            }
+        }
+        assertTrue("Body should contain one of the funny deadman messages", found);
     }
 }

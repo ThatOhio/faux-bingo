@@ -243,6 +243,18 @@ public interface FauxBingoConfig extends Config
 		return 1000000;
 	}
 
+	@ConfigItem(
+		keyName = "funnyGameModeMessages",
+		name = "Funny Game Mode Messages",
+		description = "Include a goofy message when playing on temporary game modes (Leagues, Deadman, etc.)",
+		position = 11,
+		section = discordAlertsSection
+	)
+	default boolean funnyGameModeMessages()
+	{
+		return false;
+	}
+
 	// ========== Logging API Configuration ==========
 
 	@ConfigItem(

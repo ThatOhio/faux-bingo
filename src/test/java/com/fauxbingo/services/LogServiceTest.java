@@ -48,13 +48,12 @@ public class LogServiceTest
     @Before
     public void before()
     {
-        when(config.enableLoggingApi()).thenReturn(true);
-        when(config.loggingApiUrl()).thenReturn("http://api");
+        when(config.enableBingoApi()).thenReturn(true);
         when(client.getLocalPlayer()).thenReturn(player);
         when(player.getName()).thenReturn("TestPlayer");
         when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
 
-        logService = new LogService(client, config, okHttpClient, gson, executor);
+        logService = new LogService(client, config, "http://api", okHttpClient, gson, executor);
     }
 
     @Test
@@ -77,7 +76,6 @@ public class LogServiceTest
     @Test
     public void testDeathLogSentToDeathsPath()
     {
-        when(config.loggingApiUrl()).thenReturn("http://api");
         when(okHttpClient.newCall(any(Request.class))).thenReturn(httpCall);
         DeathRecord record = DeathRecord.builder().regionId(12893).killer("Elvarg").build();
 
@@ -91,7 +89,8 @@ public class LogServiceTest
     @Test
     public void testDeathLogSkippedWhenBaseUrlEmpty()
     {
-        when(config.loggingApiUrl()).thenReturn("");
+        logService = new LogService(client, config, "", okHttpClient, gson, executor);
+        when(config.enableBingoApi()).thenReturn(true);
         DeathRecord record = DeathRecord.builder().regionId(12893).killer("Elvarg").build();
 
         logService.log("DEATH", record);

@@ -35,14 +35,16 @@ public class LogService
 
 	private final Client client;
 	private final FauxBingoConfig config;
+	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
 	private final Queue<LogEntry> queue = new ConcurrentLinkedQueue<>();
 
-	public LogService(Client client, FauxBingoConfig config, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
+	public LogService(Client client, FauxBingoConfig config, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
+		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 
@@ -54,7 +56,7 @@ public class LogService
 	 */
 	public void log(String type, Object data)
 	{
-		if (!config.enableLoggingApi() || client.getGameState() != GameState.LOGGED_IN)
+		if (!config.enableBingoApi() || client.getGameState() != GameState.LOGGED_IN)
 		{
 			return;
 		}
@@ -114,12 +116,11 @@ public class LogService
 
 	private String buildUrl(String path)
 	{
-		String base = config.loggingApiUrl();
-		if (base == null || base.isEmpty())
+		if (apiBaseUrl == null || apiBaseUrl.isEmpty())
 		{
 			return "";
 		}
-		return base.replaceAll("/$", "") + path;
+		return apiBaseUrl.replaceAll("/$", "") + path;
 	}
 
 	private void sendBatch(List<LogEntry> batch, String url)

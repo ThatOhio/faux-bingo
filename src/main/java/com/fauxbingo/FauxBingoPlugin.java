@@ -53,6 +53,9 @@ import okhttp3.OkHttpClient;
 )
 public class FauxBingoPlugin extends Plugin
 {
+	/** Base URL for the bingo API (logs, deaths, bingo-config). Not configurable. */
+	private static final String BINGO_API_BASE_URL = "https://api.fauxbingo.com";
+
 	@Inject
 	private Client client;
 
@@ -108,12 +111,12 @@ public class FauxBingoPlugin extends Plugin
 		log.info("Faux Bingo started!");
 
 		// Initialize services
-		bingoConfigService = new BingoConfigService(client, config, okHttpClient, gson, executor);
+		bingoConfigService = new BingoConfigService(client, config, BINGO_API_BASE_URL, okHttpClient, gson, executor);
 		interactionTrackingService = new InteractionTrackingService(client);
 		webhookService = new WebhookService(client, okHttpClient, executor, config, bingoConfigService);
 		screenshotService = new ScreenshotService(client, clientThread, drawManager, config);
 		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
-		logService = new LogService(client, config, okHttpClient, gson, executor);
+		logService = new LogService(client, config, BINGO_API_BASE_URL, okHttpClient, gson, executor);
 		eventProcessor = new EventProcessor();
 
 		// Initialize trackers

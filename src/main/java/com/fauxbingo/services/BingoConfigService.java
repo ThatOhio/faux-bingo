@@ -41,6 +41,7 @@ public class BingoConfigService
 
 	private final Client client;
 	private final FauxBingoConfig config;
+	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
 	private final ScheduledExecutorService executor;
@@ -51,10 +52,11 @@ public class BingoConfigService
 	private final AtomicBoolean retryCancelled = new AtomicBoolean(false);
 	private long nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 
-	public BingoConfigService(Client client, FauxBingoConfig config, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
+	public BingoConfigService(Client client, FauxBingoConfig config, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
+		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 		this.executor = executor;
@@ -65,13 +67,11 @@ public class BingoConfigService
 	 */
 	public void onLogin(String characterName)
 	{
-		if (characterName == null || characterName.isEmpty())
+		if (!config.enableBingoApi() || characterName == null || characterName.isEmpty())
 		{
 			return;
 		}
-
-		String baseUrl = config.loggingApiUrl();
-		if (baseUrl == null || baseUrl.isEmpty())
+		if (apiBaseUrl.isEmpty())
 		{
 			return;
 		}
@@ -85,7 +85,7 @@ public class BingoConfigService
 
 		retryCancelled.set(false);
 		nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
-		scheduleFetch(characterName, baseUrl, nextRetryDelayMs);
+		scheduleFetch(characterName, apiBaseUrl, nextRetryDelayMs);
 	}
 
 	/**

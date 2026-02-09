@@ -32,8 +32,8 @@ public interface FauxBingoConfig extends Config
 	String discordAlertsSection = "discordAlerts";
 
 	@ConfigSection(
-		name = "Logging API",
-		description = "Configure external data logging API",
+		name = "Bingo API",
+		description = "Enable bingo API for config and logging",
 		position = 3
 	)
 	String loggingApiSection = "loggingApi";
@@ -255,44 +255,19 @@ public interface FauxBingoConfig extends Config
 		return false;
 	}
 
-	// ========== Logging API Configuration ==========
-
-	@ConfigItem(
-		keyName = "enableLoggingApi",
-		name = "Enable Logging API",
-		description = "Sends data to the bingo api for verification and post bingo statistics.",
-		warning = "This feature submits your IP address, RSN, and information about your drops to a 3rd-party server not controlled or verified by Runelite developers. This data will be used for bingo tile verification, and post bingo statistics.",
-		position = 1,
-		section = loggingApiSection
-	)
-	default boolean enableLoggingApi()
-	{
-		return false;
-	}
+	// ========== Bingo API Configuration ==========
 
 	@ConfigItem(
 		keyName = "enableBingoApi",
 		name = "Enable Bingo API",
-		description = "Enables the bingo api for fetching bingo configuration and logging bingo statistics.",
-		warning = "This feature will submit your characters name, along with your IP address, to a 3rd-party server not controlled or verified by Runelite developers. This data will be used for bingo related purposes only.",
+		description = "Enables the bingo API for fetching bingo configuration and logging bingo statistics.",
+		warning = "This feature will submit your character name and IP address to a 3rd-party server not controlled or verified by Runelite developers. Data is used for bingo config and tile verification only.",
 		position = 1,
 		section = loggingApiSection
 	)
 	default boolean enableBingoApi()
 	{
 		return false;
-	}
-
-	@ConfigItem(
-		keyName = "loggingApiUrl",
-		name = "API base URL",
-		description = "Base URL for the logging API. Do not change unless you know what you're doing.",
-		position = 2,
-		section = loggingApiSection
-	)
-	default String loggingApiUrl()
-	{
-		return "https://api.fauxbingo.com";
 	}
 
 	// ========== Bingo Tiles Configuration ==========

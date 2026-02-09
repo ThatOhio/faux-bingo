@@ -271,6 +271,19 @@ public interface FauxBingoConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "enableBingoApi",
+		name = "Enable Bingo API",
+		description = "Enables the bingo api for fetching bingo configuration and logging bingo statistics.",
+		warning = "This feature will submit your characters name, along with your IP address, to a 3rd-party server not controlled or verified by Runelite developers. This data will be used for bingo related purposes only.",
+		position = 1,
+		section = loggingApiSection
+	)
+	default boolean enableBingoApi()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "loggingApiUrl",
 		name = "API base URL",
 		description = "Base URL for the logging API. Do not change unless you know what you're doing.",
@@ -279,7 +292,7 @@ public interface FauxBingoConfig extends Config
 	)
 	default String loggingApiUrl()
 	{
-		return "https://faux-api.thatohio.me";
+		return "https://api.fauxbingo.com";
 	}
 
 	// ========== Bingo Tiles Configuration ==========

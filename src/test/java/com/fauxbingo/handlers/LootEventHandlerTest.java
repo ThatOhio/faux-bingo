@@ -66,7 +66,7 @@ public class LootEventHandlerTest
 	@Before
 	public void before()
 	{
-		lootEventHandler = new LootEventHandler(client, config, itemManager, webhookService, logService, screenshotService, executor);
+		lootEventHandler = new LootEventHandler(client, config, null, null, itemManager, webhookService, logService, screenshotService, executor);
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.minLootValue()).thenReturn(1000000);
 		when(config.sendScreenshot()).thenReturn(false);

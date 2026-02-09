@@ -106,12 +106,20 @@ public class WebhookService
 		private final WebhookCategory category;
 	}
 
+	private final BingoConfigService bingoConfigService;
+
 	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor, FauxBingoConfig config)
+	{
+		this(client, okHttpClient, executor, config, null);
+	}
+
+	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor, FauxBingoConfig config, BingoConfigService bingoConfigService)
 	{
 		this.client = client;
 		this.okHttpClient = okHttpClient;
 		this.executor = executor;
 		this.config = config;
+		this.bingoConfigService = bingoConfigService;
 	}
 
 	public void sendWebhook(String webhookUrls, String message, BufferedImage image)
@@ -150,13 +158,16 @@ public class WebhookService
 			return;
 		}
 
-		if (webhookUrls == null || webhookUrls.isEmpty())
+		String effectiveUrls = (bingoConfigService != null)
+			? bingoConfigService.getEffectiveWebhookUrls(webhookUrls)
+			: webhookUrls;
+		if (effectiveUrls == null || effectiveUrls.isEmpty())
 		{
 			return;
 		}
 
 		queue.add(QueuedWebhook.builder()
-			.webhookUrls(webhookUrls)
+			.webhookUrls(effectiveUrls)
 			.message(message)
 			.image(image)
 			.itemName(itemName)

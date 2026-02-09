@@ -8,6 +8,8 @@ import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.overlay.TeamOverlay;
+import com.fauxbingo.services.BingoConfigService;
+import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
@@ -85,6 +87,8 @@ public class FauxBingoPlugin extends Plugin
 	private Gson gson;
 
 	private EventProcessor eventProcessor;
+	private BingoConfigService bingoConfigService;
+	private InteractionTrackingService interactionTrackingService;
 	private WebhookService webhookService;
 	private ScreenshotService screenshotService;
 	private WiseOldManService wiseOldManService;
@@ -104,7 +108,9 @@ public class FauxBingoPlugin extends Plugin
 		log.info("Faux Bingo started!");
 
 		// Initialize services
-		webhookService = new WebhookService(client, okHttpClient, executor, config);
+		bingoConfigService = new BingoConfigService(client, config, okHttpClient, gson, executor);
+		interactionTrackingService = new InteractionTrackingService(client);
+		webhookService = new WebhookService(client, okHttpClient, executor, config, bingoConfigService);
 		screenshotService = new ScreenshotService(client, clientThread, drawManager, config);
 		wiseOldManService = new WiseOldManService(client, config, okHttpClient, gson);
 		logService = new LogService(client, config, okHttpClient, gson, executor);
@@ -114,13 +120,13 @@ public class FauxBingoPlugin extends Plugin
 		xpTracker = new XpTracker(client, config, wiseOldManService);
 
 		// Initialize handlers
-		lootEventHandler = new LootEventHandler(client, config, itemManager, webhookService, logService, screenshotService, executor);
+		lootEventHandler = new LootEventHandler(client, config, bingoConfigService, interactionTrackingService, itemManager, webhookService, logService, screenshotService, executor);
 		petChatHandler = new PetChatHandler(client, config, webhookService, logService, screenshotService, executor);
 		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, screenshotService, executor);
 		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, screenshotService, executor);
-		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, screenshotService, executor, itemManager);
+		raidLootHandler = new RaidLootHandler(client, config, bingoConfigService, webhookService, logService, screenshotService, executor, itemManager);
 		manualScreenshotHandler = new ManualScreenshotHandler(client, config, webhookService, screenshotService, executor, keyManager);
-		deathHandler = new DeathHandler(client, logService);
+		deathHandler = new DeathHandler(client, logService, interactionTrackingService);
 
 		// Register event handlers
 		eventProcessor.registerHandler(lootEventHandler.createNpcLootHandler());
@@ -133,7 +139,7 @@ public class FauxBingoPlugin extends Plugin
 		eventProcessor.registerHandler(raidLootHandler.createWidgetHandler());
 		eventProcessor.registerHandler(raidLootHandler.createItemContainerHandler());
 		eventProcessor.registerHandler(deathHandler.createActorDeathHandler());
-		eventProcessor.registerHandler(deathHandler.createInteractingChangedHandler());
+		eventProcessor.registerHandler(interactionTrackingService.createInteractingChangedHandler());
 
 		// Register manual screenshot hotkey
 		manualScreenshotHandler.register();
@@ -233,7 +239,26 @@ public class FauxBingoPlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.LOGGING_IN)
 		{
+			if (bingoConfigService != null)
+			{
+				bingoConfigService.onLogout();
+			}
 			resetState();
+		}
+
+		if (event.getGameState() == GameState.LOGGED_IN && bingoConfigService != null)
+		{
+			clientThread.invokeLater(() -> {
+				net.runelite.api.Player local = client.getLocalPlayer();
+				if (local != null)
+				{
+					String name = local.getName();
+					if (name != null && !name.isEmpty())
+					{
+						bingoConfigService.onLogin(name);
+					}
+				}
+			});
 		}
 
 		// Pass event to XP tracker

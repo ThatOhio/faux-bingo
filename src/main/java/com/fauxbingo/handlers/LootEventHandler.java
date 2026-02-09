@@ -1,11 +1,14 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.services.BingoConfigService;
+import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
+import com.fauxbingo.util.SourceMatcher;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -27,6 +30,8 @@ public class LootEventHandler
 {
 	private final Client client;
 	private final FauxBingoConfig config;
+	private final BingoConfigService bingoConfigService;
+	private final InteractionTrackingService interactionTrackingService;
 	private final ItemManager itemManager;
 	private final WebhookService webhookService;
 	private final LogService logService;
@@ -36,6 +41,8 @@ public class LootEventHandler
 	public LootEventHandler(
 		Client client,
 		FauxBingoConfig config,
+		BingoConfigService bingoConfigService,
+		InteractionTrackingService interactionTrackingService,
 		ItemManager itemManager,
 		WebhookService webhookService,
 		LogService logService,
@@ -44,6 +51,8 @@ public class LootEventHandler
 	{
 		this.client = client;
 		this.config = config;
+		this.bingoConfigService = bingoConfigService;
+		this.interactionTrackingService = interactionTrackingService;
 		this.itemManager = itemManager;
 		this.webhookService = webhookService;
 		this.logService = logService;
@@ -151,25 +160,72 @@ public class LootEventHandler
 
 	private void checkOtherBingoItems(String source, Collection<ItemStack> items)
 	{
-		String otherItemsConfig = config.otherBingoItems();
-		if (otherItemsConfig == null || otherItemsConfig.isEmpty())
+		List<String> sourcesToCheck = new java.util.ArrayList<>();
+		if (source != null && !source.isEmpty())
 		{
-			return;
+			sourcesToCheck.add(source);
 		}
-
-		List<String> otherBingoItems = Arrays.stream(otherItemsConfig.split("[\n,]"))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
+		if (interactionTrackingService != null)
+		{
+			sourcesToCheck.addAll(interactionTrackingService.getRecentInteractionNames());
+		}
 
 		for (ItemStack itemStack : items)
 		{
 			String itemName = itemManager.getItemComposition(itemStack.getId()).getName();
-			if (LootMatcher.matchesAny(itemName, otherBingoItems))
+			if (isBingoItemForLoot(itemName, sourcesToCheck))
 			{
 				sendBingoNotification(source, itemName, itemStack.getQuantity());
 			}
 		}
+	}
+
+	private boolean isBingoItemForLoot(String itemName, List<String> sourcesToCheck)
+	{
+		List<String> otherConfigItems = getOtherConfigBingoItems();
+		if (LootMatcher.matchesAny(itemName, otherConfigItems))
+		{
+			return true;
+		}
+
+		var apiData = bingoConfigService != null ? bingoConfigService.getCachedConfig() : null;
+		if (apiData == null || apiData.getItems() == null)
+		{
+			return false;
+		}
+
+		for (BingoConfigService.BingoConfigItem apiItem : apiData.getItems())
+		{
+			if (!LootMatcher.matches(itemName, apiItem.getName()))
+			{
+				continue;
+			}
+			if (apiItem.getSource() == null || apiItem.getSource().isEmpty())
+			{
+				return true;
+			}
+			for (String src : sourcesToCheck)
+			{
+				if (src != null && SourceMatcher.matches(src, apiItem.getSource()))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private List<String> getOtherConfigBingoItems()
+	{
+		String otherItemsConfig = config.otherBingoItems();
+		if (otherItemsConfig == null || otherItemsConfig.isEmpty())
+		{
+			return java.util.Collections.emptyList();
+		}
+		return Arrays.stream(otherItemsConfig.split("[\n,]"))
+			.map(String::trim)
+			.filter(s -> !s.isEmpty())
+			.collect(Collectors.toList());
 	}
 
 	private void sendBingoNotification(String source, String itemName, int quantity)

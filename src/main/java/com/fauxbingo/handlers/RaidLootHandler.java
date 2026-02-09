@@ -1,11 +1,13 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.services.BingoConfigService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
+import com.fauxbingo.util.SourceMatcher;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -65,6 +67,7 @@ public class RaidLootHandler
 
 	private final Client client;
 	private final FauxBingoConfig config;
+	private final BingoConfigService bingoConfigService;
 	private final WebhookService webhookService;
 	private final LogService logService;
 	private final ScreenshotService screenshotService;
@@ -80,6 +83,7 @@ public class RaidLootHandler
 	public RaidLootHandler(
 		Client client,
 		FauxBingoConfig config,
+		BingoConfigService bingoConfigService,
 		WebhookService webhookService,
 		LogService logService,
 		ScreenshotService screenshotService,
@@ -88,6 +92,7 @@ public class RaidLootHandler
 	{
 		this.client = client;
 		this.config = config;
+		this.bingoConfigService = bingoConfigService;
 		this.webhookService = webhookService;
 		this.logService = logService;
 		this.screenshotService = screenshotService;
@@ -345,9 +350,6 @@ public class RaidLootHandler
 
 	private void processRaidLoot(String raidName, ItemContainer itemContainer)
 	{
-		List<String> raidBingoItemsConfig = getBingoItemsForRaid(raidName);
-		List<String> otherBingoItemsConfig = getOtherBingoItems();
-
 		long totalValue = 0;
 		List<LootRecord.LootItem> allItems = new ArrayList<>();
 		List<LootRecord.LootItem> bingoItemsFound = new ArrayList<>();
@@ -371,7 +373,7 @@ public class RaidLootHandler
 
 				allItems.add(lootItem);
 
-				if (LootMatcher.matchesAny(itemName, raidBingoItemsConfig) || LootMatcher.matchesAny(itemName, otherBingoItemsConfig))
+				if (isBingoItemForRaid(itemName, raidName))
 				{
 					bingoItemsFound.add(lootItem);
 				}
@@ -393,6 +395,40 @@ public class RaidLootHandler
 		{
 			logGeneralLoot(allItems, totalValue, raidName, raidKc);
 		}
+	}
+
+	private boolean isBingoItemForRaid(String itemName, String raidName)
+	{
+		List<String> raidConfigItems = getBingoItemsForRaid(raidName);
+		List<String> otherConfigItems = getOtherBingoItems();
+
+		if (LootMatcher.matchesAny(itemName, raidConfigItems) || LootMatcher.matchesAny(itemName, otherConfigItems))
+		{
+			return true;
+		}
+
+		var apiData = bingoConfigService != null ? bingoConfigService.getCachedConfig() : null;
+		if (apiData == null || apiData.getItems() == null)
+		{
+			return false;
+		}
+
+		for (BingoConfigService.BingoConfigItem apiItem : apiData.getItems())
+		{
+			if (!LootMatcher.matches(itemName, apiItem.getName()))
+			{
+				continue;
+			}
+			if (apiItem.getSource() == null || apiItem.getSource().isEmpty())
+			{
+				return true;
+			}
+			if (SourceMatcher.matches(raidName, apiItem.getSource()))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private List<String> getBingoItemsForRaid(String raidName)

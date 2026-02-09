@@ -75,7 +75,7 @@ public class RaidLootHandlerTest
 	@Before
 	public void before()
 	{
-		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, screenshotService, executor, itemManager);
+		raidLootHandler = new RaidLootHandler(client, config, null, webhookService, logService, screenshotService, executor, itemManager);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
 		when(config.webhookUrl()).thenReturn("http://webhook");

@@ -54,7 +54,7 @@ import okhttp3.OkHttpClient;
 public class FauxBingoPlugin extends Plugin
 {
 	/** Base URL for the bingo API (logs, deaths, bingo-config). Not configurable. */
-	private static final String BINGO_API_BASE_URL = "https://api.fauxbingo.com";
+	private static final String BINGO_API_BASE_URL = "https://faux-api.thatohio.me";
 
 	@Inject
 	private Client client;

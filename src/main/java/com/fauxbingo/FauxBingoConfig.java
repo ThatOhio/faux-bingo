@@ -11,39 +11,61 @@ import net.runelite.client.config.Keybind;
 public interface FauxBingoConfig extends Config
 {
 	@ConfigSection(
+		name = "API",
+		description = "Enable external API support",
+		position = 0
+	)
+	String apiSection = "api";
+
+	@ConfigSection(
 		name = "Team Overlay",
 		description = "Configure team name and timestamp overlay display",
-		position = 0
+		position = 1
 	)
 	String overlaySection = "overlay";
 
 	@ConfigSection(
-		name = "WiseOldMan Auto-Update",
-		description = "Automatically update your WiseOldMan stats",
-		position = 1
-	)
-	String wiseOldManSection = "wiseOldMan";
-
-	@ConfigSection(
 		name = "Discord Alerts",
 		description = "Configure Discord webhook notifications",
-		position = 2
+		position = 3
 	)
 	String discordAlertsSection = "discordAlerts";
 
 	@ConfigSection(
-		name = "Bingo API",
-		description = "Enable bingo API for config and logging",
-		position = 3
-	)
-	String loggingApiSection = "loggingApi";
-
-	@ConfigSection(
 		name = "Bingo Tiles",
 		description = "Configure specific items to track regardless of value",
-		position = 4
+		position = 4,
+		closedByDefault = true
 	)
 	String bingoTilesSection = "bingoTiles";
+
+	// ========== API Configuration ==========
+
+	@ConfigItem(
+			keyName = "enableBingoApi",
+			name = "Enable Bingo API",
+			description = "Enables the bingo API for fetching bingo configuration and logging bingo statistics.",
+			warning = "This feature will submit your character name and IP address to a 3rd-party server not controlled or verified by Runelite developers. Data is used for bingo config and tile verification only.",
+			position = 1,
+			section = apiSection
+	)
+	default boolean enableBingoApi()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+			keyName = "enableWomAutoUpdate",
+			name = "Enable WOM Auto-Update",
+			description = "Automatically update your WiseOldMan stats on logout or when gaining 10k+ XP",
+			position = 2,
+			section = apiSection
+	)
+	default boolean enableWomAutoUpdate()
+	{
+		return false;
+	}
+
 
 	// ========== Team Overlay Configuration ==========
 
@@ -105,20 +127,6 @@ public interface FauxBingoConfig extends Config
 	default Color dateTimeColor()
 	{
 		return Color.WHITE;
-	}
-
-	// ========== WiseOldMan Auto-Update Configuration ==========
-
-	@ConfigItem(
-		keyName = "enableWomAutoUpdate",
-		name = "Enable Auto-Update",
-		description = "Automatically update your WiseOldMan stats on logout or when gaining 10k+ XP",
-		position = 1,
-		section = wiseOldManSection
-	)
-	default boolean enableWomAutoUpdate()
-	{
-		return false;
 	}
 
 	// ========== Discord Alerts Configuration ==========
@@ -251,21 +259,6 @@ public interface FauxBingoConfig extends Config
 		section = discordAlertsSection
 	)
 	default boolean funnyGameModeMessages()
-	{
-		return false;
-	}
-
-	// ========== Bingo API Configuration ==========
-
-	@ConfigItem(
-		keyName = "enableBingoApi",
-		name = "Enable Bingo API",
-		description = "Enables the bingo API for fetching bingo configuration and logging bingo statistics.",
-		warning = "This feature will submit your character name and IP address to a 3rd-party server not controlled or verified by Runelite developers. Data is used for bingo config and tile verification only.",
-		position = 1,
-		section = loggingApiSection
-	)
-	default boolean enableBingoApi()
 	{
 		return false;
 	}

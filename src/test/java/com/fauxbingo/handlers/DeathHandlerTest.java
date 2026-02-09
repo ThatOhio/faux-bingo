@@ -1,6 +1,7 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.handlers.EventHandler;
+import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.data.DeathRecord;
 import net.runelite.api.Actor;
@@ -37,13 +38,16 @@ public class DeathHandlerTest
 	@Mock
 	private Player killerTarget;
 
+	@Mock
+	private InteractionTrackingService interactionTrackingService;
+
 	private DeathHandler deathHandler;
 	private EventHandler<ActorDeath> actorDeathHandler;
 
 	@Before
 	public void before()
 	{
-		deathHandler = new DeathHandler(client, logService);
+		deathHandler = new DeathHandler(client, logService, interactionTrackingService);
 		actorDeathHandler = deathHandler.createActorDeathHandler();
 		when(client.getLocalPlayer()).thenReturn(localPlayer);
 	}
@@ -56,8 +60,7 @@ public class DeathHandlerTest
 		when(localPlayer.getInteracting()).thenReturn(killer);
 		when(killer.getName()).thenReturn("Elvarg");
 
-		ActorDeath event = mock(ActorDeath.class);
-		when(event.getActor()).thenReturn(localPlayer);
+		ActorDeath event = new ActorDeath(localPlayer);
 
 		actorDeathHandler.handle(event);
 
@@ -75,8 +78,7 @@ public class DeathHandlerTest
 		when(localPlayer.getWorldLocation()).thenReturn(loc);
 		when(localPlayer.getInteracting()).thenReturn(null);
 
-		ActorDeath event = mock(ActorDeath.class);
-		when(event.getActor()).thenReturn(localPlayer);
+		ActorDeath event = new ActorDeath(localPlayer);
 
 		actorDeathHandler.handle(event);
 
@@ -91,8 +93,7 @@ public class DeathHandlerTest
 	public void ignoresOtherPlayerDeath()
 	{
 		Player other = mock(Player.class);
-		ActorDeath event = mock(ActorDeath.class);
-		when(event.getActor()).thenReturn(other);
+		ActorDeath event = new ActorDeath(other);
 
 		actorDeathHandler.handle(event);
 
@@ -104,18 +105,10 @@ public class DeathHandlerTest
 	{
 		WorldPoint loc = WorldPoint.fromRegion(12893, 32, 32, 0);
 		when(localPlayer.getWorldLocation()).thenReturn(loc);
-		when(localPlayer.getInteracting()).thenReturn(null);
-		when(killerTarget.getCombatLevel()).thenReturn(126);
 		when(killerTarget.getName()).thenReturn("Elvarg");
+		when(interactionTrackingService.getLastTarget()).thenReturn(killerTarget);
 
-		EventHandler<InteractingChanged> interactingHandler = deathHandler.createInteractingChangedHandler();
-		InteractingChanged icEvent = mock(InteractingChanged.class);
-		when(icEvent.getSource()).thenReturn(localPlayer);
-		when(icEvent.getTarget()).thenReturn(killerTarget);
-		interactingHandler.handle(icEvent);
-
-		ActorDeath deathEvent = mock(ActorDeath.class);
-		when(deathEvent.getActor()).thenReturn(localPlayer);
+		ActorDeath deathEvent = new ActorDeath(localPlayer);
 
 		actorDeathHandler.handle(deathEvent);
 

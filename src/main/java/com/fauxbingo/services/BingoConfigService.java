@@ -86,6 +86,7 @@ public class BingoConfigService
 		retryCancelled.set(false);
 		nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 		scheduleFetch(characterName, apiBaseUrl, nextRetryDelayMs);
+		log.info("Bingo config fetch scheduled for {}", characterName);
 	}
 
 	/**
@@ -196,7 +197,7 @@ public class BingoConfigService
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
-				log.debug("Bingo config fetch failed for {}: {}", characterName, e.getMessage());
+				log.info("Bingo config fetch failed for {}: {}", characterName, e.getMessage());
 				scheduleRetry(characterName, baseUrl);
 			}
 
@@ -215,7 +216,7 @@ public class BingoConfigService
 							lastSuccessfulFetchMs = System.currentTimeMillis();
 							nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 							retryTask = null;
-							log.debug("Bingo config fetched for {}", characterName);
+							log.info("Bingo config fetched for {}", characterName);
 						}
 						else
 						{
@@ -224,7 +225,7 @@ public class BingoConfigService
 					}
 					else
 					{
-						log.debug("Bingo config API returned {}: {}", response.code(), response.message());
+						log.info("Bingo config API returned {}: {}", response.code(), response.message());
 						scheduleRetry(characterName, baseUrl);
 					}
 				}

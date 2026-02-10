@@ -34,7 +34,7 @@ import okhttp3.Response;
 public class BingoConfigService
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-	private static final String BINGO_CONFIG_PATH = "/bingo-config";
+	private static final String BINGO_CONFIG_PATH = "/api/bingoconfig";
 	private static final long CACHE_WINDOW_MS = 30_000;
 	private static final long INITIAL_RETRY_DELAY_MS = 1_000;
 	private static final long MAX_RETRY_DELAY_MS = 60_000;
@@ -51,6 +51,7 @@ public class BingoConfigService
 	private ScheduledFuture<?> retryTask = null;
 	private final AtomicBoolean retryCancelled = new AtomicBoolean(false);
 	private long nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
+	private String currentCharacterName = null;
 
 	public BingoConfigService(Client client, FauxBingoConfig config, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
 	{
@@ -77,16 +78,32 @@ public class BingoConfigService
 		}
 
 		long now = System.currentTimeMillis();
-		if (cachedData != null && (now - lastSuccessfulFetchMs) < CACHE_WINDOW_MS)
+		boolean nameChanged = !characterName.equals(currentCharacterName);
+
+		retryCancelled.set(false);
+
+		if (!nameChanged && cachedData != null && (now - lastSuccessfulFetchMs) < CACHE_WINDOW_MS)
 		{
 			log.debug("Skipping bingo config fetch, within 30s cache window");
 			return;
 		}
 
+		if (!nameChanged && retryTask != null)
+		{
+			log.debug("Bingo config fetch already scheduled for {}", characterName);
+			return;
+		}
+
+		currentCharacterName = characterName;
+		if (nameChanged)
+		{
+			cachedData = null;
+			lastSuccessfulFetchMs = 0;
+		}
+
 		retryCancelled.set(false);
 		nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 		scheduleFetch(characterName, apiBaseUrl, nextRetryDelayMs);
-		log.info("Bingo config fetch scheduled for {}", characterName);
 	}
 
 	/**
@@ -182,6 +199,7 @@ public class BingoConfigService
 	private void doFetch(String characterName, String baseUrl)
 	{
 		String url = buildUrl(baseUrl, characterName);
+		log.debug("Fetching bingo config for {} at {}", characterName, url);
 		if (url.isEmpty())
 		{
 			return;
@@ -197,7 +215,7 @@ public class BingoConfigService
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
-				log.info("Bingo config fetch failed for {}: {}", characterName, e.getMessage());
+				log.debug("Bingo config fetch failed for {}: {}", characterName, e.getMessage());
 				scheduleRetry(characterName, baseUrl);
 			}
 
@@ -216,7 +234,7 @@ public class BingoConfigService
 							lastSuccessfulFetchMs = System.currentTimeMillis();
 							nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 							retryTask = null;
-							log.info("Bingo config fetched for {}", characterName);
+							log.debug("Bingo config fetched for {}", characterName);
 						}
 						else
 						{
@@ -225,7 +243,7 @@ public class BingoConfigService
 					}
 					else
 					{
-						log.info("Bingo config API returned {}: {}", response.code(), response.message());
+						log.debug("Bingo config API returned {}: {}", response.code(), response.message());
 						scheduleRetry(characterName, baseUrl);
 					}
 				}

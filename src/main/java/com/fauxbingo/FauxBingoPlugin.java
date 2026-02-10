@@ -35,6 +35,7 @@ import net.runelite.api.events.UsernameChanged;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
@@ -104,6 +105,7 @@ public class FauxBingoPlugin extends Plugin
 	private ManualScreenshotHandler manualScreenshotHandler;
 	private DeathHandler deathHandler;
 	private XpTracker xpTracker;
+	private boolean loginTriggered = false;
 
 	@Override
 	protected void startUp() throws Exception
@@ -151,6 +153,9 @@ public class FauxBingoPlugin extends Plugin
 		overlayManager.add(teamOverlay);
 
 		log.info("Event processor initialized with all handlers");
+
+		// Check if already logged in
+		checkLogin();
 	}
 
 	@Override
@@ -235,6 +240,22 @@ public class FauxBingoPlugin extends Plugin
 	public void onUsernameChanged(UsernameChanged event)
 	{
 		resetState();
+		checkLogin();
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (!event.getGroup().equals("fauxbingo"))
+		{
+			return;
+		}
+
+		if (event.getKey().equals("enableBingoApi") && config.enableBingoApi())
+		{
+			loginTriggered = false;
+			checkLogin();
+		}
 	}
 
 	@Subscribe
@@ -249,19 +270,9 @@ public class FauxBingoPlugin extends Plugin
 			resetState();
 		}
 
-		if (event.getGameState() == GameState.LOGGED_IN && bingoConfigService != null)
+		if (event.getGameState() == GameState.LOGGED_IN)
 		{
-			clientThread.invokeLater(() -> {
-				net.runelite.api.Player local = client.getLocalPlayer();
-				if (local != null)
-				{
-					String name = local.getName();
-					if (name != null && !name.isEmpty())
-					{
-						bingoConfigService.onLogin(name);
-					}
-				}
-			});
+			checkLogin();
 		}
 
 		// Pass event to XP tracker
@@ -284,6 +295,7 @@ public class FauxBingoPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		checkLogin();
 		// Pass event to XP tracker
 		if (xpTracker != null)
 		{
@@ -293,6 +305,7 @@ public class FauxBingoPlugin extends Plugin
 
 	private void resetState()
 	{
+		loginTriggered = false;
 		if (collectionLogHandler != null)
 		{
 			collectionLogHandler.resetState();
@@ -306,6 +319,25 @@ public class FauxBingoPlugin extends Plugin
 		if (deathHandler != null)
 		{
 			deathHandler.resetState();
+		}
+	}
+
+	private void checkLogin()
+	{
+		if (loginTriggered || client.getGameState() != GameState.LOGGED_IN || bingoConfigService == null)
+		{
+			return;
+		}
+
+		net.runelite.api.Player local = client.getLocalPlayer();
+		if (local != null)
+		{
+			String name = local.getName();
+			if (name != null && !name.isEmpty())
+			{
+				bingoConfigService.onLogin(name);
+				loginTriggered = true;
+			}
 		}
 	}
 

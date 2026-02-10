@@ -90,6 +90,9 @@ public class FauxBingoPlugin extends Plugin
 	@Inject
 	private Gson gson;
 
+	@Inject
+	private ConfigManager configManager;
+
 	private EventProcessor eventProcessor;
 	private BingoConfigService bingoConfigService;
 	private InteractionTrackingService interactionTrackingService;
@@ -113,7 +116,7 @@ public class FauxBingoPlugin extends Plugin
 		log.info("Faux Bingo started!");
 
 		// Initialize services
-		bingoConfigService = new BingoConfigService(client, config, BINGO_API_BASE_URL, okHttpClient, gson, executor);
+		bingoConfigService = new BingoConfigService(client, config, configManager, BINGO_API_BASE_URL, okHttpClient, gson, executor);
 		interactionTrackingService = new InteractionTrackingService(client);
 		webhookService = new WebhookService(client, okHttpClient, executor, config, bingoConfigService);
 		screenshotService = new ScreenshotService(client, clientThread, drawManager, config);

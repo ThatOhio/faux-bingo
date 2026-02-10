@@ -3,6 +3,7 @@ package com.fauxbingo.services;
 import com.fauxbingo.FauxBingoConfig;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
+import java.awt.Color;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +19,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.client.config.ConfigManager;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
@@ -38,9 +40,12 @@ public class BingoConfigService
 	private static final long CACHE_WINDOW_MS = 30_000;
 	private static final long INITIAL_RETRY_DELAY_MS = 1_000;
 	private static final long MAX_RETRY_DELAY_MS = 60_000;
+	/** Config group for plugin config (FauxBingoConfig @ConfigGroup). */
+	private static final String CONFIG_GROUP = "fauxbingo";
 
 	private final Client client;
 	private final FauxBingoConfig config;
+	private final ConfigManager configManager;
 	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
@@ -53,10 +58,11 @@ public class BingoConfigService
 	private long nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 	private String currentCharacterName = null;
 
-	public BingoConfigService(Client client, FauxBingoConfig config, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
+	public BingoConfigService(Client client, FauxBingoConfig config, ConfigManager configManager, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
+		this.configManager = configManager;
 		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
@@ -231,10 +237,11 @@ public class BingoConfigService
 						if (parsed != null)
 						{
 							cachedData = BingoConfigData.from(parsed);
+							applyTeamConfigFromResponse(parsed);
 							lastSuccessfulFetchMs = System.currentTimeMillis();
 							nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 							retryTask = null;
-							log.debug("Bingo config fetched for {}", characterName);
+							log.info("Bingo config fetched for {}", characterName);
 						}
 						else
 						{
@@ -253,6 +260,86 @@ public class BingoConfigService
 				}
 			}
 		});
+	}
+
+	/**
+	 * If teamConfig is present and valid, updates overlay config (displayOverlay, displayDateTime,
+	 * teamName, teamNameColor, dateTimeColor). All-or-nothing: any validation failure skips all updates.
+	 */
+	private void applyTeamConfigFromResponse(BingoConfigResponse parsed)
+	{
+		TeamConfigDto tc = parsed != null ? parsed.teamConfig : null;
+		if (tc == null)
+		{
+			return;
+		}
+
+		String teamName = tc.teamName;
+		if (teamName == null || teamName.trim().isEmpty())
+		{
+			log.info("teamConfig validation failed: teamName is null or empty");
+			return;
+		}
+
+		Color teamNameColor = parseHexColor(tc.teamNameColor);
+		if (teamNameColor == null)
+		{
+			log.info("teamConfig validation failed: invalid hex color for teamNameColor: {}", tc.teamNameColor);
+			return;
+		}
+
+		Color dateTimeColor = parseHexColor(tc.dateTimeColor);
+		if (dateTimeColor == null)
+		{
+			log.info("teamConfig validation failed: invalid hex color for dateTimeColor: {}", tc.dateTimeColor);
+			return;
+		}
+
+		try
+		{
+			configManager.setConfiguration(CONFIG_GROUP, "displayOverlay", true);
+			configManager.setConfiguration(CONFIG_GROUP, "displayDateTime", true);
+			configManager.setConfiguration(CONFIG_GROUP, "teamName", teamName.trim());
+			configManager.setConfiguration(CONFIG_GROUP, "teamNameColor", teamNameColor);
+			configManager.setConfiguration(CONFIG_GROUP, "dateTimeColor", dateTimeColor);
+		}
+		catch (Exception e)
+		{
+			log.info("Failed to update team overlay configuration: {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * Validates hex string (with or without #), exactly 6 hex digits. Returns Color or null if invalid.
+	 */
+	private static Color parseHexColor(String hex)
+	{
+		if (hex == null)
+		{
+			return null;
+		}
+		String s = hex.startsWith("#") ? hex.substring(1) : hex;
+		if (s.length() != 6)
+		{
+			return null;
+		}
+		for (int i = 0; i < 6; i++)
+		{
+			char c = s.charAt(i);
+			if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')))
+			{
+				return null;
+			}
+		}
+		try
+		{
+			int rgb = Integer.parseInt(s, 16);
+			return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+		}
+		catch (NumberFormatException e)
+		{
+			return null;
+		}
 	}
 
 	private void scheduleRetry(String characterName, String baseUrl)
@@ -332,6 +419,21 @@ public class BingoConfigService
 
 		@SerializedName("items")
 		List<BingoConfigItemDto> items;
+
+		@SerializedName("teamConfig")
+		TeamConfigDto teamConfig;
+	}
+
+	private static class TeamConfigDto
+	{
+		@SerializedName("teamName")
+		String teamName;
+
+		@SerializedName("teamNameColor")
+		String teamNameColor;
+
+		@SerializedName("dateTimeColor")
+		String dateTimeColor;
 	}
 
 	private static class BingoConfigItemDto

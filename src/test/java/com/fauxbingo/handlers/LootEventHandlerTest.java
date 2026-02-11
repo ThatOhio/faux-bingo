@@ -17,6 +17,7 @@ import net.runelite.client.game.ItemStack;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
@@ -114,7 +115,7 @@ public class LootEventHandlerTest
 // The most valuable item should now be used as the itemName bundling key
 		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), isNull(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
-	}
+ }
 
 	@Test
 	public void testBelowThreshold()
@@ -141,5 +142,43 @@ public class LootEventHandlerTest
 
 		// Should send bingo notification even though it's below minLootValue
 		verify(webhookService).sendWebhook(anyString(), contains("1 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
+	}
+
+	@Test
+	public void testGroupedLootSummaryAggregatesDuplicateNames()
+	{
+		// Lower threshold so we don't depend on value math here
+		when(config.minLootValue()).thenReturn(0);
+		when(npc.getName()).thenReturn("GLWZ");
+
+		// Create compositions with desired names
+		ItemComposition sharkComp1 = mock(ItemComposition.class);
+		when(sharkComp1.getName()).thenReturn("Shark");
+		ItemComposition sharkComp2 = mock(ItemComposition.class);
+		when(sharkComp2.getName()).thenReturn("Shark");
+		ItemComposition teleComp = mock(ItemComposition.class);
+		when(teleComp.getName()).thenReturn("Teleport to house");
+
+		// Map specific IDs to these compositions
+		when(itemManager.getItemComposition(100)).thenReturn(sharkComp1);
+		when(itemManager.getItemComposition(101)).thenReturn(sharkComp2);
+		when(itemManager.getItemComposition(200)).thenReturn(teleComp);
+
+		// Prices don't matter for this test, but ensure non-zero
+		when(itemManager.getItemPrice(anyInt())).thenReturn(1);
+
+		ItemStack shark1 = new ItemStack(100, 1, null);
+		ItemStack shark2 = new ItemStack(101, 2, null);
+		ItemStack tele = new ItemStack(200, 8, null);
+		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(shark1, shark2, tele));
+
+		lootEventHandler.createNpcLootHandler().handle(event);
+
+		ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+		verify(webhookService).sendWebhook(anyString(), messageCaptor.capture(), any(), anyString(), eq(WebhookService.WebhookCategory.LOOT));
+		String message = messageCaptor.getValue();
+
+		// Expect grouped summary preserving first-seen order: Sharks combined into 3, then teleports 8
+		org.junit.Assert.assertTrue("Expected grouped loot summary in message", message.contains("3 x Shark, 8 x Teleport to house"));
 	}
 }

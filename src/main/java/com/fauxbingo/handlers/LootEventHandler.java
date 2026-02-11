@@ -11,7 +11,9 @@ import com.fauxbingo.util.LootMatcher;
 import com.fauxbingo.util.SourceMatcher;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -99,7 +101,7 @@ public class LootEventHandler
 	private void processLoot(String source, Collection<ItemStack> items)
 	{
 		long totalValue = 0;
-		StringBuilder lootString = new StringBuilder();
+		Map<String, Integer> quantityByName = new LinkedHashMap<>();
 
 		for (ItemStack itemStack : items)
 		{
@@ -109,11 +111,17 @@ public class LootEventHandler
 			totalValue += (long) price * quantity;
 
 			String itemName = itemManager.getItemComposition(itemId).getName();
+			quantityByName.merge(itemName, quantity, Integer::sum);
+		}
+
+		StringBuilder lootString = new StringBuilder();
+		for (Map.Entry<String, Integer> entry : quantityByName.entrySet())
+		{
 			if (lootString.length() > 0)
 			{
 				lootString.append(", ");
 			}
-			lootString.append(quantity).append(" x ").append(itemName);
+			lootString.append(entry.getValue()).append(" x ").append(entry.getKey());
 		}
 
 		if (totalValue >= config.minLootValue())

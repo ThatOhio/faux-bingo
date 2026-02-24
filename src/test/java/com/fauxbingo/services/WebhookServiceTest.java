@@ -112,6 +112,33 @@ public class WebhookServiceTest
     }
 
     @Test
+    public void testPetAndCollectionLogBundlingAcrossNames() throws IOException
+    {
+        String urls = "http://webhook";
+
+        webhookService.sendWebhook(urls, "Player just received a new pet!", null, "Pet", WebhookService.WebhookCategory.PET);
+        webhookService.sendWebhook(urls, "Player just received a new collection log item: Skotos!", null, "Skotos", WebhookService.WebhookCategory.COLLECTION_LOG);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor, atLeastOnce()).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        // Run the latest scheduled task
+        runnableCaptor.getAllValues().get(runnableCaptor.getAllValues().size() - 1).run();
+
+        // Verify only one call was made due to cross-name PET + COLLECTION_LOG merge
+        verify(okHttpClient, times(1)).newCall(any());
+
+        // Verify the message content
+        ArgumentCaptor<Request> requestCaptor = ArgumentCaptor.forClass(Request.class);
+        verify(okHttpClient).newCall(requestCaptor.capture());
+
+        Buffer buffer = new Buffer();
+        requestCaptor.getValue().body().writeTo(buffer);
+        String body = buffer.readUtf8();
+
+        assertTrue("Should contain enhanced pet name", body.contains("Player just received a new pet: **Skotos**!"));
+    }
+
+    @Test
     public void testDifferentItems()
     {
         String urls = "http://webhook";
@@ -125,6 +152,23 @@ public class WebhookServiceTest
 
         // Verify two calls were made
         verify(okHttpClient, times(2)).newCall(any());
+    }
+
+    @Test
+    public void testNoMergeWhenMultipleCollectionLogs()
+    {
+        String urls = "http://webhook";
+
+        webhookService.sendWebhook(urls, "Player just received a new pet!", null, "Pet", WebhookService.WebhookCategory.PET);
+        webhookService.sendWebhook(urls, "CL: A", null, "A", WebhookService.WebhookCategory.COLLECTION_LOG);
+        webhookService.sendWebhook(urls, "CL: B", null, "B", WebhookService.WebhookCategory.COLLECTION_LOG);
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor, atLeastOnce()).schedule(runnableCaptor.capture(), eq(3L), eq(TimeUnit.SECONDS));
+        runnableCaptor.getAllValues().get(runnableCaptor.getAllValues().size() - 1).run();
+
+        // Expect three calls: PET + 2 CL (no ambiguous merge)
+        verify(okHttpClient, times(3)).newCall(any());
     }
 
     @Test

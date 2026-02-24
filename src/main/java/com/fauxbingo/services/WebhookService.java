@@ -6,9 +6,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -16,6 +18,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
+
 import lombok.Builder;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -48,28 +51,28 @@ public class WebhookService
 	private ScheduledFuture<?> flushTask = null;
 
 	private static final String[] LEAGUES_MESSAGES = {
-		"This dummy is playing Leagues!",
-		"Leagues: Where the drops are fake and the points don't matter!",
-		"Is it really a grind if you have 16x drop rate?",
-		"Playing Leagues because the main game is too hard."
+			"This dummy is playing Leagues!",
+			"Leagues: Where the drops are fake and the points don't matter!",
+			"Is it really a grind if you have 16x drop rate?",
+			"Playing Leagues because the main game is too hard."
 	};
 
 	private static final String[] DEADMAN_MESSAGES = {
-		"Look at this brave soul playing Deadman!",
-		"Living life on the edge in DMM!",
-		"One misclick away from a bank rebuild."
+			"Look at this brave soul playing Deadman!",
+			"Living life on the edge in DMM!",
+			"One misclick away from a bank rebuild."
 	};
 
 	private static final String[] FRESH_START_MESSAGES = {
-		"Fresh Start, same old mistakes.",
-		"Reliving the glory days in a Fresh Start World.",
-		"Starting over for the 10th time in Fresh Start."
+			"Fresh Start, same old mistakes.",
+			"Reliving the glory days in a Fresh Start World.",
+			"Starting over for the 10th time in Fresh Start."
 	};
 
 	private static final String[] TOURNAMENT_MESSAGES = {
-		"Practicing for a win they'll never get in a Tournament World!",
-		"Playing with toys in the sandbox (Tournament World).",
-		"In a Tournament World because they can't afford the gear otherwise."
+			"Practicing for a win they'll never get in a Tournament World!",
+			"Playing with toys in the sandbox (Tournament World).",
+			"In a Tournament World because they can't afford the gear otherwise."
 	};
 
 	public enum WebhookCategory
@@ -131,10 +134,10 @@ public class WebhookService
 	 * Send a webhook message to the configured URLs with an optional item name for bundling.
 	 *
 	 * @param webhookUrls Newline-separated list of webhook URLs
-	 * @param message The message content to send
-	 * @param image Optional screenshot to attach (can be null)
-	 * @param itemName Optional item name to use for bundling related events
-	 * @param category The category of the webhook for priority and bundling
+	 * @param message     The message content to send
+	 * @param image       Optional screenshot to attach (can be null)
+	 * @param itemName    Optional item name to use for bundling related events
+	 * @param category    The category of the webhook for priority and bundling
 	 */
 	public void sendWebhook(String webhookUrls, String message, BufferedImage image, String itemName, WebhookCategory category)
 	{
@@ -144,86 +147,104 @@ public class WebhookService
 	/**
 	 * Send a webhook message to the configured URLs with an optional item name for bundling.
 	 *
-	 * @param webhookUrls Newline-separated list of webhook URLs
-	 * @param message The message content to send
-	 * @param image Optional screenshot to attach (can be null)
-	 * @param itemName Optional item name to use for bundling related events
-	 * @param category The category of the webhook for priority and bundling
+	 * @param webhookUrls    Newline-separated list of webhook URLs
+	 * @param message        The message content to send
+	 * @param image          Optional screenshot to attach (can be null)
+	 * @param itemName       Optional item name to use for bundling related events
+	 * @param category       The category of the webhook for priority and bundling
 	 * @param checkGameState Whether to check if the player is logged in before sending
 	 */
 	public synchronized void sendWebhook(String webhookUrls, String message, BufferedImage image, String itemName, WebhookCategory category, boolean checkGameState)
 	{
-		if (checkGameState && client.getGameState() != GameState.LOGGED_IN)
-		{
+		if (checkGameState && client.getGameState() != GameState.LOGGED_IN) {
 			return;
 		}
 
 		String effectiveUrls = (bingoConfigService != null)
-			? bingoConfigService.getEffectiveWebhookUrls(webhookUrls)
-			: webhookUrls;
-		if (effectiveUrls == null || effectiveUrls.isEmpty())
-		{
+				? bingoConfigService.getEffectiveWebhookUrls(webhookUrls)
+				: webhookUrls;
+		if (effectiveUrls == null || effectiveUrls.isEmpty()) {
 			return;
 		}
 
 		queue.add(QueuedWebhook.builder()
-			.webhookUrls(effectiveUrls)
-			.message(message)
-			.image(image)
-			.itemName(itemName)
-			.category(category)
-			.build());
+				.webhookUrls(effectiveUrls)
+				.message(message)
+				.image(image)
+				.itemName(itemName)
+				.category(category)
+				.build());
 
-		if (flushTask == null || flushTask.isDone())
-		{
+		if (flushTask == null || flushTask.isDone()) {
 			flushTask = executor.schedule(this::flushBatch, 3, TimeUnit.SECONDS);
 		}
 	}
 
 	private synchronized void flushBatch()
 	{
-		if (queue.isEmpty())
-		{
+		if (queue.isEmpty()) {
 			return;
 		}
 
 		// Group by webhookUrls first, in case they are different
 		Map<String, List<QueuedWebhook>> byUrls = queue.stream()
-			.collect(Collectors.groupingBy(QueuedWebhook::getWebhookUrls));
+				.collect(Collectors.groupingBy(QueuedWebhook::getWebhookUrls));
 
-		for (Map.Entry<String, List<QueuedWebhook>> urlEntry : byUrls.entrySet())
-		{
+		for (Map.Entry<String, List<QueuedWebhook>> urlEntry : byUrls.entrySet()) {
 			String urls = urlEntry.getKey();
 			List<QueuedWebhook> urlQueue = urlEntry.getValue();
 
 			// Separate items with names and those without
 			List<QueuedWebhook> namedItems = urlQueue.stream()
-				.filter(q -> q.getItemName() != null)
-				.collect(Collectors.toList());
+					.filter(q -> q.getItemName() != null)
+					.collect(Collectors.toList());
 
 			List<QueuedWebhook> unnamedItems = urlQueue.stream()
-				.filter(q -> q.getItemName() == null)
-				.collect(Collectors.toList());
+					.filter(q -> q.getItemName() == null)
+					.collect(Collectors.toList());
 
 			// Group named items by item name
 			Map<String, List<QueuedWebhook>> groupedItems = namedItems.stream()
-				.collect(Collectors.groupingBy(QueuedWebhook::getItemName));
+					.collect(Collectors.groupingBy(QueuedWebhook::getItemName));
 
-			for (List<QueuedWebhook> group : groupedItems.values())
-			{
-				if (group.size() == 1)
-				{
+			// Attempt to conservatively merge a single PET group with a single COLLECTION_LOG group
+			// within the same batch window, even if item names differ. This helps combine
+			// pet notifications with their corresponding collection log messages.
+			Set<String> processedKeys = new HashSet<>();
+			List<String> petKeys = groupedItems.entrySet().stream()
+					.filter(e -> e.getValue().stream().anyMatch(q -> q.getCategory() == WebhookCategory.PET))
+					.map(Map.Entry::getKey)
+					.collect(Collectors.toList());
+			List<String> clKeys = groupedItems.entrySet().stream()
+					.filter(e -> e.getValue().stream().anyMatch(q -> q.getCategory() == WebhookCategory.COLLECTION_LOG))
+					.map(Map.Entry::getKey)
+					.collect(Collectors.toList());
+
+			if (petKeys.size() == 1 && clKeys.size() == 1 && !petKeys.get(0).equals(clKeys.get(0))) {
+				String petKey = petKeys.get(0);
+				String clKey = clKeys.get(0);
+				List<QueuedWebhook> combined = new ArrayList<>();
+				combined.addAll(groupedItems.get(petKey));
+				combined.addAll(groupedItems.get(clKey));
+				sendCombinedWebhook(urls, combined);
+				processedKeys.add(petKey);
+				processedKeys.add(clKey);
+			}
+
+			for (Map.Entry<String, List<QueuedWebhook>> entry : groupedItems.entrySet()) {
+				if (processedKeys.contains(entry.getKey())) {
+					continue;
+				}
+				List<QueuedWebhook> group = entry.getValue();
+				if (group.size() == 1) {
 					QueuedWebhook single = group.get(0);
 					processWebhook(urls, single.getMessage(), single.getImage());
-				}
-				else
-				{
+				} else {
 					sendCombinedWebhook(urls, group);
 				}
 			}
 
-			for (QueuedWebhook unnamed : unnamedItems)
-			{
+			for (QueuedWebhook unnamed : unnamedItems) {
 				processWebhook(urls, unnamed.getMessage(), unnamed.getImage());
 			}
 		}
@@ -238,22 +259,34 @@ public class WebhookService
 		group.sort(Comparator.comparingInt(q -> q.getCategory().getPriority()));
 
 		QueuedWebhook primary = group.get(0);
-		StringBuilder combinedMessage = new StringBuilder(primary.getMessage());
+		String message = primary.getMessage();
 
-		for (int i = 1; i < group.size(); i++)
-		{
+		// If this is a pet drop being combined with a collection log entry,
+		// enhance the primary message with the pet's name.
+		if (primary.getCategory() == WebhookCategory.PET) {
+			for (QueuedWebhook other : group) {
+				if (other.getCategory() == WebhookCategory.COLLECTION_LOG && other.getItemName() != null) {
+					if (message.endsWith("!")) {
+						message = message.substring(0, message.length() - 1) + ": **" + other.getItemName() + "**!";
+					} else {
+						message = message + ": **" + other.getItemName() + "**";
+					}
+					break;
+				}
+			}
+		}
+
+		StringBuilder combinedMessage = new StringBuilder(message);
+
+		for (int i = 1; i < group.size(); i++) {
 			QueuedWebhook other = group.get(i);
 
 			// Only append if it's not exactly the same message
-			if (!other.getMessage().equals(primary.getMessage()))
-			{
+			if (!other.getMessage().equals(primary.getMessage())) {
 				String additionalText = getAdditionalText(other);
-				if (additionalText != null)
-				{
+				if (additionalText != null) {
 					combinedMessage.append("\n").append(additionalText);
-				}
-				else
-				{
+				} else {
 					combinedMessage.append("\n").append(other.getMessage());
 				}
 			}
@@ -261,18 +294,17 @@ public class WebhookService
 
 		// Use the first image available in the group
 		BufferedImage image = group.stream()
-			.map(QueuedWebhook::getImage)
-			.filter(img -> img != null)
-			.findFirst()
-			.orElse(null);
+				.map(QueuedWebhook::getImage)
+				.filter(img -> img != null)
+				.findFirst()
+				.orElse(null);
 
 		processWebhook(urls, combinedMessage.toString(), image);
 	}
 
 	private String getAdditionalText(QueuedWebhook webhook)
 	{
-		switch (webhook.getCategory())
-		{
+		switch (webhook.getCategory()) {
 			case COLLECTION_LOG:
 				return "*This item was also added to their collection log!*";
 			case VALUABLE_DROP:
@@ -287,8 +319,7 @@ public class WebhookService
 				// Extract source from "Loot received from %s: ..."
 				Pattern pattern = Pattern.compile("Loot received from (.*?):");
 				Matcher matcher = pattern.matcher(webhook.getMessage());
-				if (matcher.find())
-				{
+				if (matcher.find()) {
 					return String.format("Dropped by: **%s**", matcher.group(1));
 				}
 				return null;
@@ -305,50 +336,38 @@ public class WebhookService
 		boolean isFreshStart = false;
 		boolean isTournament = false;
 
-		for (WorldType type : worldTypes)
-		{
+		for (WorldType type : worldTypes) {
 			String name = type.name();
-			if (name.equals("DEADMAN"))
-			{
+			if (name.equals("DEADMAN")) {
 				isDeadman = true;
-			}
-			else if (name.equals("LEAGUE") || name.equals("SEASONAL"))
-			{
+			} else if (name.equals("LEAGUE") || name.equals("SEASONAL")) {
 				isLeagues = true;
-			}
-			else if (name.equals("FRESH_START_WORLD"))
-			{
+			} else if (name.equals("FRESH_START_WORLD")) {
 				isFreshStart = true;
-			}
-			else if (name.equals("TOURNAMENT_WORLD"))
-			{
+			} else if (name.equals("TOURNAMENT_WORLD")) {
 				isTournament = true;
 			}
 		}
 
-		if (isDeadman)
-		{
+		if (isDeadman) {
 			return config.funnyGameModeMessages()
-				? " (" + DEADMAN_MESSAGES[random.nextInt(DEADMAN_MESSAGES.length)] + ")"
-				: " (Deadman)";
+					? " (" + DEADMAN_MESSAGES[random.nextInt(DEADMAN_MESSAGES.length)] + ")"
+					: " (Deadman)";
 		}
-		if (isLeagues)
-		{
+		if (isLeagues) {
 			return config.funnyGameModeMessages()
-				? " (" + LEAGUES_MESSAGES[random.nextInt(LEAGUES_MESSAGES.length)] + ")"
-				: " (Leagues)";
+					? " (" + LEAGUES_MESSAGES[random.nextInt(LEAGUES_MESSAGES.length)] + ")"
+					: " (Leagues)";
 		}
-		if (isFreshStart)
-		{
+		if (isFreshStart) {
 			return config.funnyGameModeMessages()
-				? " (" + FRESH_START_MESSAGES[random.nextInt(FRESH_START_MESSAGES.length)] + ")"
-				: " (Fresh Start)";
+					? " (" + FRESH_START_MESSAGES[random.nextInt(FRESH_START_MESSAGES.length)] + ")"
+					: " (Fresh Start)";
 		}
-		if (isTournament)
-		{
+		if (isTournament) {
 			return config.funnyGameModeMessages()
-				? " (" + TOURNAMENT_MESSAGES[random.nextInt(TOURNAMENT_MESSAGES.length)] + ")"
-				: " (Tournament)";
+					? " (" + TOURNAMENT_MESSAGES[random.nextInt(TOURNAMENT_MESSAGES.length)] + ")"
+					: " (Tournament)";
 		}
 		return "";
 	}
@@ -356,24 +375,20 @@ public class WebhookService
 	private void processWebhook(String webhookUrls, String message, BufferedImage image)
 	{
 		String suffix = getGameModeAnnotation();
-		if (!suffix.isEmpty())
-		{
+		if (!suffix.isEmpty()) {
 			message += suffix;
 		}
 
 		String[] urls = webhookUrls.split("[\n,]");
 
 		byte[] imageBytes = null;
-		if (image != null)
-		{
+		if (image != null) {
 			imageBytes = convertImageToBytes(image);
 		}
 
-		for (String url : urls)
-		{
+		for (String url : urls) {
 			final String finalUrl = url.trim();
-			if (finalUrl.isEmpty())
-			{
+			if (finalUrl.isEmpty()) {
 				continue;
 			}
 
@@ -383,13 +398,10 @@ public class WebhookService
 
 	private byte[] convertImageToBytes(BufferedImage image)
 	{
-		try (ByteArrayOutputStream out = new ByteArrayOutputStream())
-		{
+		try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 			ImageIO.write(image, "png", out);
 			return out.toByteArray();
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			log.error("Error converting image to bytes", e);
 			return null;
 		}
@@ -398,26 +410,24 @@ public class WebhookService
 	private void sendToUrl(String url, String message, byte[] imageBytes)
 	{
 		HttpUrl httpUrl = HttpUrl.parse(url);
-		if (httpUrl == null)
-		{
+		if (httpUrl == null) {
 			log.warn("Invalid webhook URL: {}", url);
 			return;
 		}
 
 		MultipartBody.Builder requestBodyBuilder = new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
-			.addFormDataPart("content", message);
+				.setType(MultipartBody.FORM)
+				.addFormDataPart("content", message);
 
-		if (imageBytes != null)
-		{
+		if (imageBytes != null) {
 			requestBodyBuilder.addFormDataPart("file", "screenshot.png",
-				RequestBody.create(MediaType.parse("image/png"), imageBytes));
+					RequestBody.create(MediaType.parse("image/png"), imageBytes));
 		}
 
 		Request request = new Request.Builder()
-			.url(httpUrl)
-			.post(requestBodyBuilder.build())
-			.build();
+				.url(httpUrl)
+				.post(requestBodyBuilder.build())
+				.build();
 
 		okHttpClient.newCall(request).enqueue(new Callback()
 		{

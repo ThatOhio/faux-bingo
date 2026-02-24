@@ -120,14 +120,7 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		String message = String.format("**%s** just received a special item: **%d x %s**!",
 			playerName, quantity, itemName);
 
-		if (config.sendScreenshot())
-		{
-			takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
-		}
-		else
-		{
-			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
-		}
+		takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
 	}
 
 	@Override
@@ -144,14 +137,7 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 
 		String bundlingKey = cleanItemName(itemName);
 
-		if (config.sendScreenshot())
-		{
-			takeScreenshotAndSend(message, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
-		}
-		else
-		{
-			webhookService.sendWebhook(config.webhookUrl(), message, null, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
-		}
+		takeScreenshotAndSend(message, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
 	}
 
 	private String cleanItemName(String itemName)

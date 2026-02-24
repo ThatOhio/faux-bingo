@@ -56,7 +56,20 @@ public class ValuableDropHandlerTest
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includeValuableDrops()).thenReturn(true);
 		when(config.minLootValue()).thenReturn(1000000);
-		when(config.sendScreenshot()).thenReturn(false);
+
+		// Run executor tasks inline
+		doAnswer(invocation -> {
+			Runnable r = invocation.getArgument(0);
+			r.run();
+			return null;
+		}).when(executor).execute(any());
+
+		// Immediately trigger webhook via screenshot callback
+		doAnswer(invocation -> {
+			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
+			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
+			return null;
+		}).when(screenshotService).requestScreenshot(any());
 	}
 
 	@Test
@@ -68,7 +81,7 @@ public class ValuableDropHandlerTest
 
 		valuableDropHandler.handle(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), isNull(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), any(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 		verify(logService).log(eq("VALUABLE_DROP"), any());
 	}
 
@@ -81,7 +94,7 @@ public class ValuableDropHandlerTest
 
 		valuableDropHandler.handle(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), isNull(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), any(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 	}
 
 	@Test
@@ -113,7 +126,6 @@ public class ValuableDropHandlerTest
 	@Test
 	public void testScreenshotRequested()
 	{
-		when(config.sendScreenshot()).thenReturn(true);
 		ChatMessage event = new ChatMessage();
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: Dragon metal sheet (1,155,320 coins)");
@@ -121,7 +133,6 @@ public class ValuableDropHandlerTest
 		valuableDropHandler.handle(event);
 
 		verify(screenshotService).requestScreenshot(any());
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 	}
 
 	@Test
@@ -136,7 +147,7 @@ public class ValuableDropHandlerTest
 		valuableDropHandler.handle(event);
 
 		// The bundling key (cleaned) should be "Chaos rune"
-		verify(webhookService).sendWebhook(anyString(), contains("30 x Chaos rune"), isNull(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		verify(webhookService).sendWebhook(anyString(), contains("30 x Chaos rune"), any(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 	}
 
 	@Test
@@ -151,7 +162,7 @@ public class ValuableDropHandlerTest
 		valuableDropHandler.handle(event);
 
 		// The bundling key (cleaned) should be "Chaos rune"
-		verify(webhookService).sendWebhook(anyString(), contains("1,000 x Chaos rune"), isNull(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		verify(webhookService).sendWebhook(anyString(), contains("1,000 x Chaos rune"), any(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 	}
 
 	@Test

@@ -143,17 +143,6 @@ public interface FauxBingoConfig extends Config
 		return "";
 	}
 
-	@ConfigItem(
-		keyName = "sendScreenshot",
-		name = "Send Screenshot",
-		description = "Whether to take and send a screenshot with notifications",
-		position = 2,
-		section = discordAlertsSection
-	)
-	default boolean sendScreenshot()
-	{
-		return true;
-	}
 
 	@ConfigItem(
 		keyName = "manualScreenshotKeybind",

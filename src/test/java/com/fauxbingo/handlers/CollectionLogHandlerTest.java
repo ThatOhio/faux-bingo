@@ -60,7 +60,20 @@ public class CollectionLogHandlerTest
 		when(player.getName()).thenReturn("TestPlayer");
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includeCollectionLog()).thenReturn(true);
-		when(config.sendScreenshot()).thenReturn(false);
+
+		// Run executor tasks inline
+		doAnswer(invocation -> {
+			Runnable r = invocation.getArgument(0);
+			r.run();
+			return null;
+		}).when(executor).execute(any());
+
+		// Immediately trigger webhook via screenshot callback
+		doAnswer(invocation -> {
+			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
+			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
+			return null;
+		}).when(screenshotService).requestScreenshot(any());
 	}
 
 	@Test
@@ -73,7 +86,7 @@ public class CollectionLogHandlerTest
 
 		collectionLogHandler.createChatHandler().handle(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), isNull(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
+		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), any(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
 		verify(logService).log(eq("COLLECTION_LOG"), any());
 	}
 
@@ -103,7 +116,7 @@ public class CollectionLogHandlerTest
 		ScriptPreFired delayEvent = new ScriptPreFired(ScriptID.NOTIFICATION_DELAY);
 		collectionLogHandler.createScriptHandler().handle(delayEvent);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), isNull(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
+		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), any(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
 	}
 
 	@Test

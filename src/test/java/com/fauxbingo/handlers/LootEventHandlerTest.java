@@ -70,7 +70,20 @@ public class LootEventHandlerTest
 		lootEventHandler = new LootEventHandler(client, config, null, null, itemManager, webhookService, logService, screenshotService, executor);
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.minLootValue()).thenReturn(1000000);
-		when(config.sendScreenshot()).thenReturn(false);
+
+		// Run executor tasks inline
+		doAnswer(invocation -> {
+			Runnable r = invocation.getArgument(0);
+			r.run();
+			return null;
+		}).when(executor).execute(any());
+
+		// Immediately trigger webhook via screenshot callback
+		doAnswer(invocation -> {
+			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
+			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
+			return null;
+		}).when(screenshotService).requestScreenshot(any());
 
 		when(itemManager.getItemComposition(anyInt())).thenReturn(itemComposition);
 		when(itemComposition.getName()).thenReturn("Dragon bones");
@@ -86,7 +99,7 @@ public class LootEventHandlerTest
 
 		lootEventHandler.createNpcLootHandler().handle(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), isNull(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
+		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
 	}
 
@@ -99,7 +112,7 @@ public class LootEventHandlerTest
 
 		lootEventHandler.createPlayerLootHandler().handle(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("PKedPlayer"), isNull(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
+		verify(webhookService).sendWebhook(anyString(), contains("PKedPlayer"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
 	}
 
@@ -112,8 +125,8 @@ public class LootEventHandlerTest
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item1, item2));
 
 		lootEventHandler.createNpcLootHandler().handle(event);
-// The most valuable item should now be used as the itemName bundling key
-		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), isNull(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
+	// The most valuable item should now be used as the itemName bundling key
+		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
  }
 

@@ -504,14 +504,7 @@ public class RaidLootHandler
 			message.append(String.format("\nKill Count: **%d**", raidKc));
 		}
 
-		if (config.sendScreenshot())
-		{
-			takeScreenshotAndSend(message.toString(), bundlingItem, webhookCategory);
-		}
-		else
-		{
-			webhookService.sendWebhook(config.webhookUrl(), message.toString(), null, bundlingItem, webhookCategory);
-		}
+		takeScreenshotAndSend(message.toString(), bundlingItem, webhookCategory);
 
 		// Log everything
 		if (!bingoItems.isEmpty())

@@ -80,7 +80,20 @@ public class RaidLootHandlerTest
 		when(player.getName()).thenReturn("TestPlayer");
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includeRaidLoot()).thenReturn(true);
-		when(config.sendScreenshot()).thenReturn(false);
+
+		// Run executor tasks inline
+		doAnswer(invocation -> {
+			Runnable r = invocation.getArgument(0);
+			r.run();
+			return null;
+		}).when(executor).execute(any());
+
+		// Immediately trigger webhook via screenshot callback
+		doAnswer(invocation -> {
+			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
+			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
+			return null;
+		}).when(screenshotService).requestScreenshot(any());
 	}
 
 	@Test
@@ -109,7 +122,7 @@ public class RaidLootHandlerTest
 		verify(webhookService).sendWebhook(
 			anyString(), 
 			argThat(s -> s.contains("Twisted bow") && s.contains("Kill Count: **100**") && s.contains("1 x Twisted bow")), 
-			isNull(), 
+			any(), 
 			eq("Twisted bow"), 
 			eq(WebhookService.WebhookCategory.RAID_LOOT)
 		);
@@ -139,7 +152,7 @@ public class RaidLootHandlerTest
 		ItemContainerChanged containerEvent = new ItemContainerChanged(612, itemContainer);
 		raidLootHandler.createItemContainerHandler().handle(containerEvent);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Scythe of vitur"), isNull(), eq("Scythe of vitur (Uncharged)"), eq(WebhookService.WebhookCategory.RAID_LOOT));
+		verify(webhookService).sendWebhook(anyString(), contains("Scythe of vitur"), any(), eq("Scythe of vitur (Uncharged)"), eq(WebhookService.WebhookCategory.RAID_LOOT));
 	}
 
 	@Test
@@ -189,7 +202,7 @@ public class RaidLootHandlerTest
 		verify(webhookService).sendWebhook(
 			anyString(), 
 			contains("100 x Dynamite"), 
-			isNull(), 
+			any(), 
 			eq("Dynamite"), 
 			eq(WebhookService.WebhookCategory.BINGO_LOOT)
 		);
@@ -219,7 +232,7 @@ public class RaidLootHandlerTest
 		verify(webhookService).sendWebhook(
 			anyString(), 
 			contains("50 x Vial of blood"), 
-			isNull(), 
+			any(), 
 			eq("Vial of blood"), 
 			eq(WebhookService.WebhookCategory.BINGO_LOOT)
 		);
@@ -248,7 +261,7 @@ public class RaidLootHandlerTest
 		verify(webhookService).sendWebhook(
 			anyString(), 
 			argThat(s -> s.contains("25 x Lily of the sands") && s.contains("Tombs of Amascut") && s.contains("Kill Count: **10**")), 
-			isNull(), 
+			any(), 
 			eq("Lily of the sands"), 
 			eq(WebhookService.WebhookCategory.BINGO_LOOT)
 		);
@@ -362,7 +375,7 @@ public class RaidLootHandlerTest
 		verify(webhookService).sendWebhook(
 			anyString(),
 			contains("Total value: 1,400,000 gp"),
-			isNull(),
+			any(),
 			any(),
 			any()
 		);

@@ -149,14 +149,7 @@ public class LootEventHandler
 				}
 			}
 
-			if (config.sendScreenshot())
-			{
-				takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.LOOT);
-			}
-			else
-			{
-				webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.LOOT);
-			}
+			takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.LOOT);
 		}
 
 		// Always log to the external API if enabled
@@ -242,14 +235,7 @@ public class LootEventHandler
 		String message = String.format("**%s** just received a special item from %s: **%d x %s**!",
 			playerName, source, quantity, itemName);
 
-		if (config.sendScreenshot())
-		{
-			takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
-		}
-		else
-		{
-			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
-		}
+		takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
 	}
 
 	private void logLoot(String source, Collection<ItemStack> items, long totalValue)

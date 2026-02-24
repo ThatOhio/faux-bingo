@@ -83,14 +83,7 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
 		String webhookMessage = String.format("**%s** just received a new pet!", playerName);
 
-		if (config.sendScreenshot())
-		{
-			takeScreenshotAndSend(webhookMessage, "Pet");
-		}
-		else
-		{
-			webhookService.sendWebhook(config.webhookUrl(), webhookMessage, null, "Pet", WebhookService.WebhookCategory.PET);
-		}
+		takeScreenshotAndSend(webhookMessage, "Pet");
 
 		logPetDrop();
 	}

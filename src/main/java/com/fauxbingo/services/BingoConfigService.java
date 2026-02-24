@@ -308,10 +308,6 @@ public class BingoConfigService
 			{
 				configManager.setConfiguration(CONFIG_GROUP, "minLootValue", 1500000);
 			}
-
-			// At least one player turned off screenshots because they didn't know what they were clicking
-			// Enable screenshots so bingo admins can verify drops properly.
-			configManager.setConfiguration(CONFIG_GROUP, "sendScreenshot", true);
 		}
 		catch (Exception e)
 		{

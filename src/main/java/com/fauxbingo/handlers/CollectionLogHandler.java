@@ -133,14 +133,7 @@ public class CollectionLogHandler
 		String message = String.format("**%s** just received a new collection log item: **%s**!", 
 			playerName, itemName);
 
-		if (config.sendScreenshot())
-		{
-			takeScreenshotAndSend(message, itemName);
-		}
-		else
-		{
-			webhookService.sendWebhook(config.webhookUrl(), message, null, itemName, WebhookService.WebhookCategory.COLLECTION_LOG);
-		}
+		takeScreenshotAndSend(message, itemName);
 
 		logCollectionLogItem(itemName);
 	}

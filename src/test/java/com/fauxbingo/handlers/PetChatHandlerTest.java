@@ -56,7 +56,20 @@ public class PetChatHandlerTest
 		when(player.getName()).thenReturn("TestPlayer");
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includePets()).thenReturn(true);
-		when(config.sendScreenshot()).thenReturn(false);
+
+		// Run executor tasks inline
+		doAnswer(invocation -> {
+			Runnable r = invocation.getArgument(0);
+			r.run();
+			return null;
+		}).when(executor).execute(any());
+
+		// Immediately trigger webhook via screenshot callback
+		doAnswer(invocation -> {
+			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
+			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
+			return null;
+		}).when(screenshotService).requestScreenshot(any());
 	}
 
 	@Test
@@ -68,7 +81,7 @@ public class PetChatHandlerTest
 
 		petChatHandler.handle(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("TestPlayer"), isNull(), eq("Pet"), eq(WebhookService.WebhookCategory.PET));
+		verify(webhookService).sendWebhook(anyString(), contains("TestPlayer"), any(), eq("Pet"), eq(WebhookService.WebhookCategory.PET));
 		verify(logService).log(eq("PET"), any());
 	}
 

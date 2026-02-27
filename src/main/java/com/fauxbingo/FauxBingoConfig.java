@@ -66,6 +66,18 @@ public interface FauxBingoConfig extends Config
 		return false;
 	}
 
+	@ConfigItem(
+			keyName = "showTeamIconsInChat",
+			name = "Show Team Icons in Chat",
+			description = "Displays a team icon before player names in chat for active bingo event participants. Requires Bingo API to be enabled.",
+			position = 3,
+			section = apiSection
+	)
+	default boolean showTeamIconsInChat()
+	{
+		return false;
+	}
+
 
 	// ========== Team Overlay Configuration ==========
 

@@ -14,6 +14,7 @@ import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.WiseOldManService;
+import com.fauxbingo.services.TeamIconService;
 import net.runelite.client.callback.ClientThread;
 import com.fauxbingo.trackers.XpTracker;
 import com.google.gson.Gson;
@@ -107,6 +108,7 @@ public class FauxBingoPlugin extends Plugin
 	private RaidLootHandler raidLootHandler;
 	private ManualScreenshotHandler manualScreenshotHandler;
 	private DeathHandler deathHandler;
+	private TeamIconService teamIconService;
 	private XpTracker xpTracker;
 	private boolean loginTriggered = false;
 
@@ -117,6 +119,8 @@ public class FauxBingoPlugin extends Plugin
 
 		// Initialize services
 		bingoConfigService = new BingoConfigService(client, config, configManager, BINGO_API_BASE_URL, okHttpClient, gson, executor);
+		teamIconService = new TeamIconService(client, config, BINGO_API_BASE_URL, okHttpClient, gson, executor, clientThread);
+		teamIconService.start();
 		interactionTrackingService = new InteractionTrackingService(client);
 		webhookService = new WebhookService(client, okHttpClient, executor, config, bingoConfigService);
 		screenshotService = new ScreenshotService(client, clientThread, drawManager, config);
@@ -148,6 +152,7 @@ public class FauxBingoPlugin extends Plugin
 		eventProcessor.registerHandler(raidLootHandler.createItemContainerHandler());
 		eventProcessor.registerHandler(deathHandler.createActorDeathHandler());
 		eventProcessor.registerHandler(interactionTrackingService.createInteractingChangedHandler());
+		eventProcessor.registerHandler(teamIconService.createChatHandler());
 
 		// Register manual screenshot hotkey
 		manualScreenshotHandler.register();
@@ -168,6 +173,11 @@ public class FauxBingoPlugin extends Plugin
 
 		// Unregister overlay
 		overlayManager.remove(teamOverlay);
+
+		if (teamIconService != null)
+		{
+			teamIconService.shutdown();
+		}
 
 		// Unregister manual screenshot hotkey
 		if (manualScreenshotHandler != null)
@@ -258,6 +268,10 @@ public class FauxBingoPlugin extends Plugin
 		{
 			loginTriggered = false;
 			checkLogin();
+			if (teamIconService != null)
+			{
+				teamIconService.start();
+			}
 		}
 	}
 

@@ -42,6 +42,7 @@ public class BingoConfigService
 	private static final long MAX_RETRY_DELAY_MS = 60_000;
 	/** Config group for plugin config (FauxBingoConfig @ConfigGroup). */
 	private static final String CONFIG_GROUP = "fauxbingo";
+	private static final long REFRESH_INTERVAL_MINS = 5;
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -54,6 +55,7 @@ public class BingoConfigService
 	private volatile BingoConfigData cachedData = null;
 	private volatile long lastSuccessfulFetchMs = 0;
 	private ScheduledFuture<?> retryTask = null;
+	private ScheduledFuture<?> refreshTask = null;
 	private final AtomicBoolean retryCancelled = new AtomicBoolean(false);
 	private long nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 	private String currentCharacterName = null;
@@ -67,6 +69,30 @@ public class BingoConfigService
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 		this.executor = executor;
+	}
+
+	public void start()
+	{
+		if (refreshTask != null && !refreshTask.isCancelled())
+		{
+			return;
+		}
+		refreshTask = executor.scheduleAtFixedRate(this::periodicRefresh, REFRESH_INTERVAL_MINS, REFRESH_INTERVAL_MINS, TimeUnit.MINUTES);
+	}
+
+	public void shutdown()
+	{
+		if (refreshTask != null)
+		{
+			refreshTask.cancel(false);
+			refreshTask = null;
+		}
+		retryCancelled.set(true);
+		if (retryTask != null)
+		{
+			retryTask.cancel(false);
+			retryTask = null;
+		}
 	}
 
 	/**
@@ -186,6 +212,48 @@ public class BingoConfigService
 		return t.endsWith("/") ? t.substring(0, t.length() - 1) : t;
 	}
 
+	public void refresh(String characterName)
+	{
+		if (characterName == null || characterName.isEmpty())
+		{
+			return;
+		}
+		if (apiBaseUrl.isEmpty())
+		{
+			return;
+		}
+
+		currentCharacterName = characterName;
+		if (retryTask != null)
+		{
+			retryTask.cancel(false);
+			retryTask = null;
+		}
+		nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
+		retryCancelled.set(false);
+		doFetch(characterName, apiBaseUrl, true);
+	}
+
+	private void periodicRefresh()
+	{
+		if (!config.enableBingoApi())
+		{
+			return;
+		}
+		if (currentCharacterName == null || currentCharacterName.isEmpty())
+		{
+			return;
+		}
+
+		if (retryTask != null)
+		{
+			retryTask.cancel(false);
+			retryTask = null;
+		}
+		retryCancelled.set(false);
+		doFetch(currentCharacterName, apiBaseUrl, false);
+	}
+
 	private void scheduleFetch(String characterName, String baseUrl, long delayMs)
 	{
 		if (retryCancelled.get())
@@ -198,11 +266,11 @@ public class BingoConfigService
 			{
 				return;
 			}
-			doFetch(characterName, baseUrl);
+			doFetch(characterName, baseUrl, true);
 		}, delayMs, TimeUnit.MILLISECONDS);
 	}
 
-	private void doFetch(String characterName, String baseUrl)
+	private void doFetch(String characterName, String baseUrl, boolean shouldRetry)
 	{
 		String url = buildUrl(baseUrl, characterName);
 		log.debug("Fetching bingo config for {} at {}", characterName, url);
@@ -222,7 +290,10 @@ public class BingoConfigService
 			public void onFailure(Call call, IOException e)
 			{
 				log.debug("Bingo config fetch failed for {}: {}", characterName, e.getMessage());
-				scheduleRetry(characterName, baseUrl);
+				if (shouldRetry)
+				{
+					scheduleRetry(characterName, baseUrl);
+				}
 			}
 
 			@Override
@@ -243,7 +314,7 @@ public class BingoConfigService
 							retryTask = null;
 							log.info("Bingo config fetched for {}", characterName);
 						}
-						else
+						else if (shouldRetry)
 						{
 							scheduleRetry(characterName, baseUrl);
 						}
@@ -251,7 +322,10 @@ public class BingoConfigService
 					else
 					{
 						log.debug("Bingo config API returned {}: {}", response.code(), response.message());
-						scheduleRetry(characterName, baseUrl);
+						if (shouldRetry)
+						{
+							scheduleRetry(characterName, baseUrl);
+						}
 					}
 				}
 				finally

@@ -119,6 +119,7 @@ public class FauxBingoPlugin extends Plugin
 
 		// Initialize services
 		bingoConfigService = new BingoConfigService(client, config, configManager, BINGO_API_BASE_URL, okHttpClient, gson, executor);
+		bingoConfigService.start();
 		teamIconService = new TeamIconService(client, config, BINGO_API_BASE_URL, okHttpClient, gson, executor, clientThread);
 		teamIconService.start();
 		interactionTrackingService = new InteractionTrackingService(client);
@@ -173,6 +174,11 @@ public class FauxBingoPlugin extends Plugin
 
 		// Unregister overlay
 		overlayManager.remove(teamOverlay);
+
+		if (bingoConfigService != null)
+		{
+			bingoConfigService.shutdown();
+		}
 
 		if (teamIconService != null)
 		{
@@ -268,9 +274,15 @@ public class FauxBingoPlugin extends Plugin
 		{
 			loginTriggered = false;
 			checkLogin();
+			bingoConfigService.start();
 			if (teamIconService != null)
 			{
 				teamIconService.start();
+			}
+			net.runelite.api.Player local = client.getLocalPlayer();
+			if (local != null && local.getName() != null && !local.getName().isEmpty())
+			{
+				bingoConfigService.refresh(local.getName());
 			}
 		}
 	}

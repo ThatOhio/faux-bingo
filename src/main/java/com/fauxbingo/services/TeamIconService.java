@@ -58,6 +58,7 @@ public class TeamIconService
 	private final Map<String, String> playerToTeam = new HashMap<>();       // lowercase+trimmed character name -> team name
 	private final Map<String, Integer> teamToSpriteIndex = new HashMap<>(); // team name -> mod icon array index
 	private final Map<String, String> teamToIconUrl = new HashMap<>();      // team name -> registered URL (change detection + deduplication)
+	private int iconsRegisteredCount = 0;
 	private volatile int initialModIconsLength = -1;                        // captured on client thread before first fetch
 	private ScheduledFuture<?> refreshTask = null;
 
@@ -87,8 +88,10 @@ public class TeamIconService
 			return;
 		}
 
-		clientThread.invokeLater(() -> initialModIconsLength = client.getModIcons().length);
-		refreshTask = executor.scheduleAtFixedRate(this::fetchTeamData, 0, 5, TimeUnit.MINUTES);
+		clientThread.invokeLater(() -> {
+			initialModIconsLength = client.getModIcons().length;
+			refreshTask = executor.scheduleAtFixedRate(this::fetchTeamData, 0, 5, TimeUnit.MINUTES);
+		});
 	}
 
 	private void fetchTeamData()
@@ -224,6 +227,7 @@ public class TeamIconService
 				IndexedSprite[] updated = Arrays.copyOf(current, current.length + 1);
 				updated[current.length] = sprite;
 				client.setModIcons(updated);
+				iconsRegisteredCount++;
 
 				synchronized (teamToSpriteIndex)
 				{
@@ -302,11 +306,28 @@ public class TeamIconService
 		}
 
 		clientThread.invokeLater(() -> {
-			if (initialModIconsLength >= 0 && client.getModIcons().length > initialModIconsLength)
+			if (initialModIconsLength >= 0)
 			{
-				client.setModIcons(Arrays.copyOf(client.getModIcons(), initialModIconsLength));
+				int expectedLength = initialModIconsLength + iconsRegisteredCount;
+				if (client.getModIcons().length == expectedLength)
+				{
+					// No other plugin has appended after us — safe to truncate.
+					client.setModIcons(Arrays.copyOf(client.getModIcons(), initialModIconsLength));
+				}
+				else
+				{
+					// Another plugin has appended sprites after ours. Truncating would corrupt
+					// their indices. Leave the array intact and accept that our sprites are leaked
+					// for the remainder of this session.
+					log.debug("Skipping modIcons truncation: array length {} does not match expected {}. " +
+							"Another plugin has appended sprites after TeamIconService.",
+						client.getModIcons().length, expectedLength);
+				}
 			}
 		});
+
+		iconsRegisteredCount = 0;
+		initialModIconsLength = -1;
 
 		synchronized (playerToTeam)
 		{

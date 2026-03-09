@@ -371,7 +371,9 @@ public class BingoConfigService
 
 		try
 		{
-			configManager.setConfiguration(CONFIG_GROUP, "displayOverlay", true);
+			// Now that bingo is over we no longer need to force this to on,
+			// Future update will have this toggle on based on the Api.
+			//configManager.setConfiguration(CONFIG_GROUP, "displayOverlay", true);
 			configManager.setConfiguration(CONFIG_GROUP, "displayDateTime", true);
 			configManager.setConfiguration(CONFIG_GROUP, "teamName", teamName.trim());
 			configManager.setConfiguration(CONFIG_GROUP, "teamNameColor", teamNameColor);
@@ -380,7 +382,8 @@ public class BingoConfigService
 			// To avoid spamming the bingo channels, raise the min value when applying bingo config.
 			if (config.minLootValue() < 1500000)
 			{
-				configManager.setConfiguration(CONFIG_GROUP, "minLootValue", 1500000);
+				// This should also conditionally happen based on bingo window from Api
+				//configManager.setConfiguration(CONFIG_GROUP, "minLootValue", 1500000);
 			}
 		}
 		catch (Exception e)

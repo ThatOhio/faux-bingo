@@ -39,6 +39,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
+import net.runelite.client.events.ServerNpcLoot;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
@@ -150,6 +151,7 @@ public class FauxBingoPlugin extends Plugin
 
 		// Register event handlers
 		eventProcessor.registerHandler(lootEventHandler.createNpcLootHandler());
+		eventProcessor.registerHandler(lootEventHandler.createServerNpcLootHandler());
 		eventProcessor.registerHandler(lootEventHandler.createPlayerLootHandler());
 		eventProcessor.registerHandler(lootEventHandler.createEventLootHandler());
 		eventProcessor.registerHandler(petChatHandler);
@@ -231,6 +233,12 @@ public class FauxBingoPlugin extends Plugin
 
 	@Subscribe
 	public void onNpcLootReceived(NpcLootReceived event)
+	{
+		eventProcessor.processEvent(event);
+	}
+
+	@Subscribe
+	public void onServerNpcLoot(ServerNpcLoot event)
 	{
 		eventProcessor.processEvent(event);
 	}

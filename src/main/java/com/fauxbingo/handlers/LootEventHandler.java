@@ -9,8 +9,12 @@ import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import com.fauxbingo.util.LootMatcher;
 import com.fauxbingo.util.SourceMatcher;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Deque;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +24,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.NPCComposition;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
+import net.runelite.client.events.ServerNpcLoot;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.loottracker.LootReceived;
@@ -36,6 +42,41 @@ public class LootEventHandler
 {
 	/** Loot tracker names event sources like "Reward pool (Tempoross)". */
 	private static final Pattern TRAILING_PARENTHETICAL = Pattern.compile("\\(([^()]+)\\)\\s*$");
+
+	/**
+	 * How long a kill stays eligible to be paired with its counterpart event.
+	 */
+	private static final long PAIRING_WINDOW_MS = 5_000;
+
+	private enum NpcLootSignal
+	{
+		TILE_SCAN,
+		SERVER;
+
+		NpcLootSignal other()
+		{
+			return this == TILE_SCAN ? SERVER : TILE_SCAN;
+		}
+	}
+
+	/**
+	 * Kills seen through one NPC loot event and still waiting for the other.
+	 */
+	private final Deque<SeenKill> unpairedKills = new ArrayDeque<>();
+
+	private static class SeenKill
+	{
+		private final String key;
+		private final NpcLootSignal signal;
+		private final long timestamp;
+
+		SeenKill(String key, NpcLootSignal signal, long timestamp)
+		{
+			this.key = key;
+			this.signal = signal;
+			this.timestamp = timestamp;
+		}
+	}
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -76,7 +117,7 @@ public class LootEventHandler
 			@Override
 			public void handle(NpcLootReceived event)
 			{
-				processLoot(event.getNpc().getName(), event.getItems());
+				processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN);
 			}
 
 			@Override
@@ -103,6 +144,81 @@ public class LootEventHandler
 				return PlayerLootReceived.class;
 			}
 		};
+	}
+
+	/**
+	 * The server driven counterpart to NpcLootReceived. Bosses whose loot does not land on their own
+	 * tile (Yama at his throne for example) have no case in LootManager's getDropLocations, 
+	 * so this is the only event they ever produce.
+	 */
+	public EventHandler<ServerNpcLoot> createServerNpcLootHandler()
+	{
+		return new EventHandler<ServerNpcLoot>()
+		{
+			@Override
+			public void handle(ServerNpcLoot event)
+			{
+				NPCComposition npc = event.getComposition();
+				processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER);
+			}
+
+			@Override
+			public Class<ServerNpcLoot> getEventType()
+			{
+				return ServerNpcLoot.class;
+			}
+		};
+	}
+
+	/**
+	 * Most kills fire both NPC loot events, so the first one through wins and the second is paired
+	 * off against it. Pairing consumes a single entry rather than suppressing everything with a
+	 * matching key, so back to back kills of the same NPC with identical loot still report once each.
+	 */
+	private void processNpcLoot(String source, Collection<ItemStack> items, NpcLootSignal signal)
+	{
+		if (items == null || items.isEmpty())
+		{
+			return;
+		}
+
+		String key = buildKillKey(source, items);
+		long now = System.currentTimeMillis();
+		dropStaleKills(now);
+
+		for (Iterator<SeenKill> it = unpairedKills.iterator(); it.hasNext(); )
+		{
+			SeenKill seen = it.next();
+			if (seen.signal == signal.other() && seen.key.equals(key))
+			{
+				it.remove();
+				log.debug("Skipping {} loot for {}, already reported via {}", signal, source, seen.signal);
+				return;
+			}
+		}
+
+		unpairedKills.add(new SeenKill(key, signal, now));
+		processLoot(source, items);
+	}
+
+	private void dropStaleKills(long now)
+	{
+		while (!unpairedKills.isEmpty() && now - unpairedKills.peek().timestamp > PAIRING_WINDOW_MS)
+		{
+			unpairedKills.poll();
+		}
+	}
+
+	/** Source plus its loot, order independent so both events produce the same key. */
+	private static String buildKillKey(String source, Collection<ItemStack> items)
+	{
+		List<String> stacks = new ArrayList<>(items.size());
+		for (ItemStack item : items)
+		{
+			stacks.add(item.getId() + "x" + item.getQuantity());
+		}
+		stacks.sort(null);
+		return source + "|" + String.join(",", stacks);
 	}
 
 	/**

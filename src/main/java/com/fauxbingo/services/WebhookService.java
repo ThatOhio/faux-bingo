@@ -18,6 +18,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 import lombok.Builder;
 import lombok.Data;
@@ -40,12 +42,14 @@ import okhttp3.Response;
  * Service responsible for sending discord webhook notifications with optional screenshots.
  */
 @Slf4j
+@Singleton
 public class WebhookService
 {
 	private final OkHttpClient okHttpClient;
 	private final ScheduledExecutorService executor;
 	private final Client client;
 	private final FauxBingoConfig config;
+	private final BingoConfigService bingoConfigService;
 	private final List<QueuedWebhook> queue = new ArrayList<>();
 	private final Random random = new Random();
 	private ScheduledFuture<?> flushTask = null;
@@ -79,11 +83,10 @@ public class WebhookService
 	{
 		PET(1),
 		RAID_LOOT(2),
-		BINGO_LOOT(3),
-		VALUABLE_DROP(4),
-		COLLECTION_LOG(5),
-		LOOT(6),
-		MISC(7);
+		VALUABLE_DROP(3),
+		COLLECTION_LOG(4),
+		LOOT(5),
+		MISC(6);
 
 		private final int priority;
 
@@ -109,13 +112,13 @@ public class WebhookService
 		private final WebhookCategory category;
 	}
 
-	private final BingoConfigService bingoConfigService;
-
+	/** Without a BingoConfigService the effective webhook list is whatever the user configured. */
 	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor, FauxBingoConfig config)
 	{
 		this(client, okHttpClient, executor, config, null);
 	}
 
+	@Inject
 	public WebhookService(Client client, OkHttpClient okHttpClient, ScheduledExecutorService executor, FauxBingoConfig config, BingoConfigService bingoConfigService)
 	{
 		this.client = client;
@@ -311,10 +314,6 @@ public class WebhookService
 				return "*This was also a valuable drop!*";
 			case PET:
 				return "*They also received a pet!*";
-			case RAID_LOOT:
-				return "";
-			case BINGO_LOOT:
-				return "*This item is on the bingo list!*";
 			case LOOT:
 				// Extract source from "Loot received from %s: ..."
 				Pattern pattern = Pattern.compile("Loot received from (.*?):");

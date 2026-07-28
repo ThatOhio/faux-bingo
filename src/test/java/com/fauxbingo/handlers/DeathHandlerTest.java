@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.handlers.EventHandler;
 import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.data.DeathRecord;
@@ -42,13 +41,11 @@ public class DeathHandlerTest
 	private InteractionTrackingService interactionTrackingService;
 
 	private DeathHandler deathHandler;
-	private EventHandler<ActorDeath> actorDeathHandler;
 
 	@Before
 	public void before()
 	{
 		deathHandler = new DeathHandler(client, logService, interactionTrackingService);
-		actorDeathHandler = deathHandler.createActorDeathHandler();
 		when(client.getLocalPlayer()).thenReturn(localPlayer);
 	}
 
@@ -62,7 +59,7 @@ public class DeathHandlerTest
 
 		ActorDeath event = new ActorDeath(localPlayer);
 
-		actorDeathHandler.handle(event);
+		deathHandler.onActorDeath(event);
 
 		ArgumentCaptor<DeathRecord> cap = ArgumentCaptor.forClass(DeathRecord.class);
 		verify(logService).log(eq("DEATH"), cap.capture());
@@ -80,7 +77,7 @@ public class DeathHandlerTest
 
 		ActorDeath event = new ActorDeath(localPlayer);
 
-		actorDeathHandler.handle(event);
+		deathHandler.onActorDeath(event);
 
 		ArgumentCaptor<DeathRecord> cap = ArgumentCaptor.forClass(DeathRecord.class);
 		verify(logService).log(eq("DEATH"), cap.capture());
@@ -95,7 +92,7 @@ public class DeathHandlerTest
 		Player other = mock(Player.class);
 		ActorDeath event = new ActorDeath(other);
 
-		actorDeathHandler.handle(event);
+		deathHandler.onActorDeath(event);
 
 		verify(logService, never()).log(anyString(), any());
 	}
@@ -110,7 +107,7 @@ public class DeathHandlerTest
 
 		ActorDeath deathEvent = new ActorDeath(localPlayer);
 
-		actorDeathHandler.handle(deathEvent);
+		deathHandler.onActorDeath(deathEvent);
 
 		ArgumentCaptor<DeathRecord> cap = ArgumentCaptor.forClass(DeathRecord.class);
 		verify(logService).log(eq("DEATH"), cap.capture());

@@ -1,7 +1,6 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.BingoConfigService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
@@ -9,7 +8,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
-import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
@@ -24,7 +22,6 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -41,8 +38,6 @@ public class ServerNpcLootHandlerTest
 	private static final int BONES_ID = 526;
 
 	@Mock
-	private Client client;
-	@Mock
 	private FauxBingoConfig config;
 	@Mock
 	private ItemManager itemManager;
@@ -55,22 +50,17 @@ public class ServerNpcLootHandlerTest
 	@Mock
 	private ScheduledExecutorService executor;
 	@Mock
-	private BingoConfigService bingoConfigService;
-	@Mock
 	private NPC npc;
 	@Mock
 	private NPCComposition npcComposition;
 
-	private EventHandler<ServerNpcLoot> serverHandler;
-	private EventHandler<NpcLootReceived> tileHandler;
+	private LootEventHandler lootEventHandler;
 
 	@Before
 	public void before()
 	{
-		LootEventHandler lootEventHandler = new LootEventHandler(client, config, bingoConfigService, null,
-			itemManager, webhookService, logService, screenshotService, executor);
-		serverHandler = lootEventHandler.createServerNpcLootHandler();
-		tileHandler = lootEventHandler.createNpcLootHandler();
+		lootEventHandler = new LootEventHandler(config, itemManager, webhookService,
+			logService, screenshotService, executor);
 
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.minLootValue()).thenReturn(1_500_000);
@@ -114,30 +104,19 @@ public class ServerNpcLootHandlerTest
 		return Collections.singletonList(new ItemStack(OATHPLATE_SHARDS_ID, 12, null));
 	}
 
-	private void withShardTile()
-	{
-		when(bingoConfigService.getCachedConfig()).thenReturn(new BingoConfigService.BingoConfigData(
-			Collections.emptyList(),
-			Collections.singletonList(new BingoConfigService.BingoConfigItem("oathplate shards", null))));
-	}
-
-	/** The reported bug: 183k a shard is under the gate, so only the tile path could have posted it. */
+	/** The reported bug: Yama produces no NpcLootReceived, so this is the only signal for the kill. */
 	@Test
 	public void yamaShardsFireOnServerEventAlone()
 	{
-		withShardTile();
-
-		serverHandler.handle(serverLoot("Yama", shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("Yama", shards()));
 
 		verify(logService).log(eq("LOOT"), any());
-		verify(webhookService).sendWebhook(anyString(), anyString(), any(),
-			eq("Oathplate shards"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 
 	@Test
 	public void whispererLootFiresOnServerEventAlone()
 	{
-		serverHandler.handle(serverLoot("The Whisperer", shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("The Whisperer", shards()));
 
 		verify(logService).log(eq("LOOT"), any());
 	}
@@ -146,8 +125,8 @@ public class ServerNpcLootHandlerTest
 	@Test
 	public void bothEventsForOneKillReportOnce()
 	{
-		serverHandler.handle(serverLoot("Vorkath", shards()));
-		tileHandler.handle(tileLoot("Vorkath", shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("Vorkath", shards()));
+		lootEventHandler.onNpcLootReceived(tileLoot("Vorkath", shards()));
 
 		verify(logService, times(1)).log(eq("LOOT"), any());
 	}
@@ -156,8 +135,8 @@ public class ServerNpcLootHandlerTest
 	@Test
 	public void pairingWorksInEitherOrder()
 	{
-		tileHandler.handle(tileLoot("Vorkath", shards()));
-		serverHandler.handle(serverLoot("Vorkath", shards()));
+		lootEventHandler.onNpcLootReceived(tileLoot("Vorkath", shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("Vorkath", shards()));
 
 		verify(logService, times(1)).log(eq("LOOT"), any());
 	}
@@ -168,10 +147,10 @@ public class ServerNpcLootHandlerTest
 	{
 		List<ItemStack> loot = Collections.singletonList(new ItemStack(BONES_ID, 1, null));
 
-		serverHandler.handle(serverLoot("Goblin", loot));
-		tileHandler.handle(tileLoot("Goblin", loot));
-		serverHandler.handle(serverLoot("Goblin", loot));
-		tileHandler.handle(tileLoot("Goblin", loot));
+		lootEventHandler.onServerNpcLoot(serverLoot("Goblin", loot));
+		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
+		lootEventHandler.onServerNpcLoot(serverLoot("Goblin", loot));
+		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
 
 		verify(logService, times(2)).log(eq("LOOT"), any());
 	}
@@ -182,10 +161,10 @@ public class ServerNpcLootHandlerTest
 	{
 		List<ItemStack> loot = Collections.singletonList(new ItemStack(BONES_ID, 1, null));
 
-		serverHandler.handle(serverLoot("Goblin", loot));
-		serverHandler.handle(serverLoot("Goblin", loot));
-		tileHandler.handle(tileLoot("Goblin", loot));
-		tileHandler.handle(tileLoot("Goblin", loot));
+		lootEventHandler.onServerNpcLoot(serverLoot("Goblin", loot));
+		lootEventHandler.onServerNpcLoot(serverLoot("Goblin", loot));
+		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
+		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
 
 		verify(logService, times(2)).log(eq("LOOT"), any());
 	}
@@ -194,8 +173,8 @@ public class ServerNpcLootHandlerTest
 	@Test
 	public void repeatedServerEventsAreNotPairedTogether()
 	{
-		serverHandler.handle(serverLoot("Yama", shards()));
-		serverHandler.handle(serverLoot("Yama", shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("Yama", shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("Yama", shards()));
 
 		verify(logService, times(2)).log(eq("LOOT"), any());
 	}
@@ -204,8 +183,8 @@ public class ServerNpcLootHandlerTest
 	@Test
 	public void differentLootIsNotPaired()
 	{
-		serverHandler.handle(serverLoot("Vorkath", shards()));
-		tileHandler.handle(tileLoot("Vorkath", Collections.singletonList(new ItemStack(BONES_ID, 1, null))));
+		lootEventHandler.onServerNpcLoot(serverLoot("Vorkath", shards()));
+		lootEventHandler.onNpcLootReceived(tileLoot("Vorkath", Collections.singletonList(new ItemStack(BONES_ID, 1, null))));
 
 		verify(logService, times(2)).log(eq("LOOT"), any());
 	}
@@ -217,8 +196,8 @@ public class ServerNpcLootHandlerTest
 		ItemStack shard = new ItemStack(OATHPLATE_SHARDS_ID, 12, null);
 		ItemStack bone = new ItemStack(BONES_ID, 1, null);
 
-		serverHandler.handle(serverLoot("Yama", Arrays.asList(shard, bone)));
-		tileHandler.handle(tileLoot("Yama", Arrays.asList(bone, shard)));
+		lootEventHandler.onServerNpcLoot(serverLoot("Yama", Arrays.asList(shard, bone)));
+		lootEventHandler.onNpcLootReceived(tileLoot("Yama", Arrays.asList(bone, shard)));
 
 		verify(logService, times(1)).log(eq("LOOT"), any());
 	}
@@ -226,8 +205,8 @@ public class ServerNpcLootHandlerTest
 	@Test
 	public void nullCompositionAndEmptyItemsAreSafe()
 	{
-		serverHandler.handle(new ServerNpcLoot(null, shards()));
-		serverHandler.handle(serverLoot("Yama", Collections.emptyList()));
+		lootEventHandler.onServerNpcLoot(new ServerNpcLoot(null, shards()));
+		lootEventHandler.onServerNpcLoot(serverLoot("Yama", Collections.emptyList()));
 
 		verify(logService, times(1)).log(eq("LOOT"), any());
 	}

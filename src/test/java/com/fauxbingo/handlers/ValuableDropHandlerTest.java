@@ -79,7 +79,7 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: Dragon metal sheet (1,155,320 coins)");
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), any(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 		verify(logService).log(eq("VALUABLE_DROP"), any());
@@ -92,7 +92,7 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("<col=ef1020>Valuable drop: Dragon metal sheet (1,155,320 coins)</col>");
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), any(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
 	}
@@ -104,7 +104,7 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: Dragon bones (2,500 coins)");
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 		verify(logService).log(eq("VALUABLE_DROP"), any());
@@ -118,7 +118,7 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: Dragon metal sheet (1,155,320 coins)");
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 	}
@@ -130,7 +130,7 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: Dragon metal sheet (1,155,320 coins)");
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		verify(screenshotService).requestScreenshot(any());
 	}
@@ -144,7 +144,7 @@ public class ValuableDropHandlerTest
 
 		when(config.minLootValue()).thenReturn(1000);
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		// The bundling key (cleaned) should be "Chaos rune"
 		verify(webhookService).sendWebhook(anyString(), contains("30 x Chaos rune"), any(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
@@ -159,27 +159,9 @@ public class ValuableDropHandlerTest
 
 		when(config.minLootValue()).thenReturn(1000);
 
-		valuableDropHandler.handle(event);
+		valuableDropHandler.onChatMessage(event);
 
 		// The bundling key (cleaned) should be "Chaos rune"
 		verify(webhookService).sendWebhook(anyString(), contains("1,000 x Chaos rune"), any(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
-	}
-
-	@Test
-	public void testOtherBingoItem()
-	{
-		when(config.otherBingoItems()).thenReturn("Soul rune");
-		ChatMessage event = new ChatMessage();
-		event.setType(ChatMessageType.GAMEMESSAGE);
-		event.setMessage("Valuable drop: 100 x Soul rune (15,000 coins)");
-
-		// minLootValue is 1M, so 15k is below
-		valuableDropHandler.handle(event);
-
-		// Should NOT send valuable drop notification
-		verify(webhookService, never()).sendWebhook(anyString(), contains("valuable drop"), any(), anyString(), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
-		
-		// Should send bingo notification
-		verify(webhookService).sendWebhook(anyString(), contains("100 x Soul rune"), any(), eq("Soul rune"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 }

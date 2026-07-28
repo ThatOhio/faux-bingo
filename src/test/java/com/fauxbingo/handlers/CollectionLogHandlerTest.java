@@ -84,7 +84,7 @@ public class CollectionLogHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("New item added to your collection log: Abyssal whip");
 
-		collectionLogHandler.createChatHandler().handle(event);
+		collectionLogHandler.onChatMessage(event);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), any(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
 		verify(logService).log(eq("COLLECTION_LOG"), any());
@@ -98,7 +98,7 @@ public class CollectionLogHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("New item added to your collection log: Abyssal whip");
 
-		collectionLogHandler.createChatHandler().handle(event);
+		collectionLogHandler.onChatMessage(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 	}
@@ -108,13 +108,13 @@ public class CollectionLogHandlerTest
 	{
 		// NOTIFICATION_START
 		ScriptPreFired startEvent = new ScriptPreFired(ScriptID.NOTIFICATION_START);
-		collectionLogHandler.createScriptHandler().handle(startEvent);
+		collectionLogHandler.onScriptPreFired(startEvent);
 
 		// NOTIFICATION_DELAY
 		when(client.getVarcStrValue(VarClientStr.NOTIFICATION_TOP_TEXT)).thenReturn("Collection log");
 		when(client.getVarcStrValue(VarClientStr.NOTIFICATION_BOTTOM_TEXT)).thenReturn("New item: Abyssal whip");
 		ScriptPreFired delayEvent = new ScriptPreFired(ScriptID.NOTIFICATION_DELAY);
-		collectionLogHandler.createScriptHandler().handle(delayEvent);
+		collectionLogHandler.onScriptPreFired(delayEvent);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), any(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
 	}
@@ -124,13 +124,13 @@ public class CollectionLogHandlerTest
 	{
 		// NOTIFICATION_START
 		ScriptPreFired startEvent = new ScriptPreFired(ScriptID.NOTIFICATION_START);
-		collectionLogHandler.createScriptHandler().handle(startEvent);
+		collectionLogHandler.onScriptPreFired(startEvent);
 
 		// NOTIFICATION_DELAY
 		when(client.getVarcStrValue(VarClientStr.NOTIFICATION_TOP_TEXT)).thenReturn("Quest complete");
 		when(client.getVarcStrValue(VarClientStr.NOTIFICATION_BOTTOM_TEXT)).thenReturn("New item: Abyssal whip");
 		ScriptPreFired delayEvent = new ScriptPreFired(ScriptID.NOTIFICATION_DELAY);
-		collectionLogHandler.createScriptHandler().handle(delayEvent);
+		collectionLogHandler.onScriptPreFired(delayEvent);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 	}

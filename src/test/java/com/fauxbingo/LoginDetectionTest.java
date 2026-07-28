@@ -1,14 +1,16 @@
 package com.fauxbingo;
 
+import com.fauxbingo.handlers.CollectionLogHandler;
+import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.services.BingoConfigService;
+import com.fauxbingo.services.TeamIconService;
+import com.fauxbingo.trackers.XpTracker;
 import java.lang.reflect.Field;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.UsernameChanged;
-import net.runelite.client.callback.ClientThread;
-import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.events.ConfigChanged;
 import org.junit.Before;
 import org.junit.Test;
@@ -16,8 +18,6 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -33,10 +33,16 @@ public class LoginDetectionTest
     private BingoConfigService bingoConfigService;
 
     @Mock
-    private ClientThread clientThread;
+    private TeamIconService teamIconService;
 
     @Mock
-    private OverlayManager overlayManager;
+    private CollectionLogHandler collectionLogHandler;
+
+    @Mock
+    private RaidLootHandler raidLootHandler;
+
+    @Mock
+    private XpTracker xpTracker;
 
     private FauxBingoPlugin plugin;
 
@@ -45,19 +51,16 @@ public class LoginDetectionTest
     {
         plugin = new FauxBingoPlugin();
 
+        // The plugin's own subscribers reach these collaborators, which Guice supplies in production.
         setField(plugin, "client", client);
         setField(plugin, "config", config);
         setField(plugin, "bingoConfigService", bingoConfigService);
-        setField(plugin, "clientThread", clientThread);
-        setField(plugin, "overlayManager", overlayManager);
+        setField(plugin, "teamIconService", teamIconService);
+        setField(plugin, "collectionLogHandler", collectionLogHandler);
+        setField(plugin, "raidLootHandler", raidLootHandler);
+        setField(plugin, "xpTracker", xpTracker);
 
         lenient().when(config.enableBingoApi()).thenReturn(true);
-        
-        // Mock invokeLater to execute immediately
-        lenient().doAnswer(invocation -> {
-            ((Runnable) invocation.getArgument(0)).run();
-            return null;
-        }).when(clientThread).invokeLater(any(Runnable.class));
     }
 
     private void setField(Object obj, String fieldName, Object value) throws Exception

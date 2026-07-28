@@ -3,6 +3,9 @@ package com.fauxbingo.services;
 import com.fauxbingo.FauxBingoConfig;
 import java.awt.image.BufferedImage;
 import java.util.function.Consumer;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.widgets.Widget;
@@ -15,24 +18,14 @@ import net.runelite.client.ui.DrawManager;
  * Hides private messages and/or main chat (per config) before capture, then unhides after.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class ScreenshotService
 {
 	private final Client client;
 	private final ClientThread clientThread;
 	private final DrawManager drawManager;
 	private final FauxBingoConfig config;
-
-	public ScreenshotService(
-		Client client,
-		ClientThread clientThread,
-		DrawManager drawManager,
-		FauxBingoConfig config)
-	{
-		this.client = client;
-		this.clientThread = clientThread;
-		this.drawManager = drawManager;
-		this.config = config;
-	}
 
 	/**
 	 * Request a screenshot. Hides PM and/or main chat per config before capture, then unhides after.

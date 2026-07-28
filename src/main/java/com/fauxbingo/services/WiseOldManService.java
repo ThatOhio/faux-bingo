@@ -2,6 +2,9 @@ package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.google.gson.Gson;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import okhttp3.Call;
@@ -19,6 +22,8 @@ import java.io.IOException;
  * Service for interacting with the WiseOldMan API.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class WiseOldManService
 {
 	private static final String WOM_API_HOST = "api.wiseoldman.net";
@@ -29,14 +34,6 @@ public class WiseOldManService
 	private final FauxBingoConfig config;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
-
-	public WiseOldManService(Client client, FauxBingoConfig config, OkHttpClient okHttpClient, Gson gson)
-	{
-		this.client = client;
-		this.config = config;
-		this.okHttpClient = okHttpClient;
-		this.gson = gson;
-	}
 
 	public void updatePlayer(String username)
 	{

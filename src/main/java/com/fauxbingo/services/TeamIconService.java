@@ -1,7 +1,7 @@
 package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.handlers.EventHandler;
+import com.fauxbingo.FauxBingoPlugin;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import java.awt.image.BufferedImage;
@@ -14,11 +14,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.ImageIO;
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.IndexedSprite;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.Text;
 import okhttp3.OkHttpClient;
@@ -29,6 +33,7 @@ import okhttp3.Response;
  * Service for fetching and displaying team icons in chat.
  */
 @Slf4j
+@Singleton
 public class TeamIconService
 {
 	private static class TeamIconDto
@@ -62,10 +67,11 @@ public class TeamIconService
 	private volatile int initialModIconsLength = -1;                        // captured on client thread before first fetch
 	private ScheduledFuture<?> refreshTask = null;
 
+	@Inject
 	public TeamIconService(
 		Client client,
 		FauxBingoConfig config,
-		String apiBaseUrl,
+		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl,
 		OkHttpClient okHttpClient,
 		Gson gson,
 		ScheduledExecutorService executor,
@@ -245,56 +251,44 @@ public class TeamIconService
 		}
 	}
 
-	public EventHandler<ChatMessage> createChatHandler()
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
 	{
-		return new EventHandler<ChatMessage>()
+		if (!config.enableBingoApi() || !config.showTeamIconsInChat())
 		{
-			@Override
-			public void handle(ChatMessage event)
-			{
-				if (!config.enableBingoApi() || !config.showTeamIconsInChat())
-				{
-					return;
-				}
+			return;
+		}
 
-				String name = event.getName();
-				if (name == null)
-				{
-					return;
-				}
+		String name = event.getName();
+		if (name == null)
+		{
+			return;
+		}
 
-				String sanitizedName = Text.removeTags(name).trim().toLowerCase();
-				String teamName;
-				synchronized (playerToTeam)
-				{
-					teamName = playerToTeam.get(sanitizedName);
-				}
+		String sanitizedName = Text.removeTags(name).trim().toLowerCase();
+		String teamName;
+		synchronized (playerToTeam)
+		{
+			teamName = playerToTeam.get(sanitizedName);
+		}
 
-				if (teamName == null)
-				{
-					return;
-				}
+		if (teamName == null)
+		{
+			return;
+		}
 
-				Integer index;
-				synchronized (teamToSpriteIndex)
-				{
-					index = teamToSpriteIndex.get(teamName);
-				}
+		Integer index;
+		synchronized (teamToSpriteIndex)
+		{
+			index = teamToSpriteIndex.get(teamName);
+		}
 
-				if (index == null)
-				{
-					return;
-				}
+		if (index == null)
+		{
+			return;
+		}
 
-				event.getMessageNode().setName("<img=" + index + ">" + event.getName());
-			}
-
-			@Override
-			public Class<ChatMessage> getEventType()
-			{
-				return ChatMessage.class;
-			}
-		};
+		event.getMessageNode().setName("<img=" + index + ">" + event.getName());
 	}
 
 	public void shutdown()

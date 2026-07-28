@@ -8,16 +8,22 @@ import com.fauxbingo.services.data.LootRecord;
 import com.google.common.collect.ImmutableList;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.client.eventbus.Subscribe;
 
 /**
  * Handles chat message events to detect pet drops.
  */
 @Slf4j
-public class PetChatHandler implements EventHandler<ChatMessage>
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
+public class PetChatHandler
 {
 	private static final ImmutableList<String> PET_MESSAGES = ImmutableList.of(
 		"You have a funny feeling like you're being followed",
@@ -32,24 +38,8 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 
-	public PetChatHandler(
-		Client client,
-		FauxBingoConfig config,
-		WebhookService webhookService,
-		LogService logService,
-		ScreenshotService screenshotService,
-		ScheduledExecutorService executor)
-	{
-		this.client = client;
-		this.config = config;
-		this.webhookService = webhookService;
-		this.logService = logService;
-		this.screenshotService = screenshotService;
-		this.executor = executor;
-	}
-
-	@Override
-	public void handle(ChatMessage event)
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
 	{
 		if (!config.includePets())
 		{
@@ -68,12 +58,6 @@ public class PetChatHandler implements EventHandler<ChatMessage>
 		{
 			handlePetDrop();
 		}
-	}
-
-	@Override
-	public Class<ChatMessage> getEventType()
-	{
-		return ChatMessage.class;
 	}
 
 	private void handlePetDrop()

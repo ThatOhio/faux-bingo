@@ -79,7 +79,7 @@ public class PetChatHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("You have a funny feeling like you're being followed.");
 
-		petChatHandler.handle(event);
+		petChatHandler.onChatMessage(event);
 
 		verify(webhookService).sendWebhook(anyString(), contains("TestPlayer"), any(), eq("Pet"), eq(WebhookService.WebhookCategory.PET));
 		verify(logService).log(eq("PET"), any());
@@ -92,7 +92,7 @@ public class PetChatHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("You feel something weird sneaking into your backpack.");
 
-		petChatHandler.handle(event);
+		petChatHandler.onChatMessage(event);
 
 		verify(webhookService).sendWebhook(anyString(), anyString(), any(), any(), eq(WebhookService.WebhookCategory.PET));
 	}
@@ -104,7 +104,7 @@ public class PetChatHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("You have a funny feeling like you would have been followed.");
 
-		petChatHandler.handle(event);
+		petChatHandler.onChatMessage(event);
 
 		verify(webhookService).sendWebhook(anyString(), anyString(), any(), any(), eq(WebhookService.WebhookCategory.PET));
 	}
@@ -116,7 +116,7 @@ public class PetChatHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("You catch a shrimp.");
 
-		petChatHandler.handle(event);
+		petChatHandler.onChatMessage(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), any(), any());
 	}
@@ -129,7 +129,7 @@ public class PetChatHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("You have a funny feeling like you're being followed.");
 
-		petChatHandler.handle(event);
+		petChatHandler.onChatMessage(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), any(), any());
 	}

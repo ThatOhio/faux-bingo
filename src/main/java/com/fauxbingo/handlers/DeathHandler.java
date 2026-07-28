@@ -3,59 +3,31 @@ package com.fauxbingo.handlers;
 import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.data.DeathRecord;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.client.eventbus.Subscribe;
 
 /**
  * Handles player death. Logs death to LogService (when API enabled) with region and killer if known.
  * Uses InteractionTrackingService for killer detection.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class DeathHandler
 {
 	private final Client client;
 	private final LogService logService;
 	private final InteractionTrackingService interactionTrackingService;
 
-	public DeathHandler(Client client, LogService logService)
-	{
-		this(client, logService, null);
-	}
-
-	public DeathHandler(Client client, LogService logService, InteractionTrackingService interactionTrackingService)
-	{
-		this.client = client;
-		this.logService = logService;
-		this.interactionTrackingService = interactionTrackingService;
-	}
-
-	public EventHandler<ActorDeath> createActorDeathHandler()
-	{
-		return new EventHandler<ActorDeath>()
-		{
-			@Override
-			public void handle(ActorDeath event)
-			{
-				handleActorDeath(event);
-			}
-
-			@Override
-			public Class<ActorDeath> getEventType()
-			{
-				return ActorDeath.class;
-			}
-		};
-	}
-
-	public void resetState()
-	{
-		// InteractionTrackingService handles its own state; nothing to clear
-	}
-
-	private void handleActorDeath(ActorDeath event)
+	@Subscribe
+	public void onActorDeath(ActorDeath event)
 	{
 		Actor local = client.getLocalPlayer();
 		if (local == null || local != event.getActor())

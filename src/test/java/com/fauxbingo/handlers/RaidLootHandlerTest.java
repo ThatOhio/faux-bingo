@@ -75,7 +75,7 @@ public class RaidLootHandlerTest
 	@Before
 	public void before()
 	{
-		raidLootHandler = new RaidLootHandler(client, config, null, webhookService, logService, screenshotService, executor, itemManager);
+		raidLootHandler = new RaidLootHandler(client, config, webhookService, logService, screenshotService, executor, itemManager);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
 		when(config.webhookUrl()).thenReturn("http://webhook");
@@ -103,13 +103,13 @@ public class RaidLootHandlerTest
 		ChatMessage kcEvent = new ChatMessage();
 		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
+		raidLootHandler.onChatMessage(kcEvent);
 
 		// 2. Unique Message
 		ChatMessage uniqueEvent = new ChatMessage();
 		uniqueEvent.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
 		uniqueEvent.setMessage("TestPlayer - Twisted bow");
-		raidLootHandler.createChatHandler().handle(uniqueEvent);
+		raidLootHandler.onChatMessage(uniqueEvent);
 
 		// 3. Container Changed
 		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(20997, 1)});
@@ -117,7 +117,7 @@ public class RaidLootHandlerTest
 		when(itemComposition.getName()).thenReturn("Twisted bow");
 
 		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
+		raidLootHandler.onItemContainerChanged(containerEvent);
 
 		verify(webhookService).sendWebhook(
 			anyString(), 
@@ -136,13 +136,13 @@ public class RaidLootHandlerTest
 		ChatMessage kcEvent = new ChatMessage();
 		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
 		kcEvent.setMessage("Your completed Theatre of Blood count is: 50.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
+		raidLootHandler.onChatMessage(kcEvent);
 
 		// 2. Unique Message
 		ChatMessage uniqueEvent = new ChatMessage();
 		uniqueEvent.setType(ChatMessageType.GAMEMESSAGE);
 		uniqueEvent.setMessage("TestPlayer found something special: Scythe of vitur (Uncharged)");
-		raidLootHandler.createChatHandler().handle(uniqueEvent);
+		raidLootHandler.onChatMessage(uniqueEvent);
 
 		// 3. Container Changed
 		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(22477, 1)});
@@ -150,7 +150,7 @@ public class RaidLootHandlerTest
 		when(itemComposition.getName()).thenReturn("Scythe of vitur (Uncharged)");
 
 		ItemContainerChanged containerEvent = new ItemContainerChanged(612, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
+		raidLootHandler.onItemContainerChanged(containerEvent);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Scythe of vitur"), any(), eq("Scythe of vitur (Uncharged)"), eq(WebhookService.WebhookCategory.RAID_LOOT));
 	}
@@ -162,7 +162,7 @@ public class RaidLootHandlerTest
 		ChatMessage kcEvent = new ChatMessage();
 		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
+		raidLootHandler.onChatMessage(kcEvent);
 
 		// 2. Container Changed with cheap items
 		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1234, 100)});
@@ -172,7 +172,7 @@ public class RaidLootHandlerTest
 		when(config.minLootValue()).thenReturn(1000000);
 
 		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
+		raidLootHandler.onItemContainerChanged(containerEvent);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 		// Should still log it
@@ -180,116 +180,26 @@ public class RaidLootHandlerTest
 	}
 
 	@Test
-	public void testCoxBingoItem()
-	{
-		// Config
-		when(config.coxBingoItems()).thenReturn("Dynamite, Prayer scroll");
-		
-		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1234, 100)});
-		when(itemManager.getItemComposition(1234)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Dynamite");
-
-		// 1. KC Message
-		ChatMessage kcEvent = new ChatMessage();
-		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
-		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
-
-		// 2. Container Changed
-		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
-
-		verify(webhookService).sendWebhook(
-			anyString(), 
-			contains("100 x Dynamite"), 
-			any(), 
-			eq("Dynamite"), 
-			eq(WebhookService.WebhookCategory.BINGO_LOOT)
-		);
-		verify(logService).log(eq("BINGO_LOOT"), any());
-	}
-
-	@Test
-	public void testTobBingoItem()
-	{
-		// Config
-		when(config.tobBingoItems()).thenReturn("Vial of blood");
-		
-		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(22444, 50)});
-		when(itemManager.getItemComposition(22444)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Vial of blood");
-
-		// 1. KC Message
-		ChatMessage kcEvent = new ChatMessage();
-		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
-		kcEvent.setMessage("Your completed Theatre of Blood count is: 50.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
-
-		// 2. Container Changed
-		ItemContainerChanged containerEvent = new ItemContainerChanged(612, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
-
-		verify(webhookService).sendWebhook(
-			anyString(), 
-			contains("50 x Vial of blood"), 
-			any(), 
-			eq("Vial of blood"), 
-			eq(WebhookService.WebhookCategory.BINGO_LOOT)
-		);
-	}
-
-	@Test
-	public void testToaBingoItem()
-	{
-		// Config
-		when(config.toaBingoItems()).thenReturn("Lily of the sands");
-		
-		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(27272, 25)});
-		when(itemManager.getItemComposition(27272)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Lily of the sands");
-
-		// 1. KC Message
-		ChatMessage kcEvent = new ChatMessage();
-		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
-		kcEvent.setMessage("Your Tombs of Amascut: Normal Mode completion count is 10.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
-
-		// 2. Container Changed
-		ItemContainerChanged containerEvent = new ItemContainerChanged(801, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
-
-		verify(webhookService).sendWebhook(
-			anyString(), 
-			argThat(s -> s.contains("25 x Lily of the sands") && s.contains("Tombs of Amascut") && s.contains("Kill Count: **10**")), 
-			any(), 
-			eq("Lily of the sands"), 
-			eq(WebhookService.WebhookCategory.BINGO_LOOT)
-		);
-	}
-
-	@Test
 	public void testConsolidatedNotification()
 	{
-		// Test multiple rare drops and bingo items in one raid
-		when(config.coxBingoItems()).thenReturn("Soul rune");
-		
+		// Test multiple rare drops in one raid
 		// 1. KC
 		ChatMessage kcEvent = new ChatMessage();
 		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
+		raidLootHandler.onChatMessage(kcEvent);
 
 		// 2. Unique 1
 		ChatMessage u1 = new ChatMessage();
 		u1.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
 		u1.setMessage("TestPlayer - Twisted bow");
-		raidLootHandler.createChatHandler().handle(u1);
+		raidLootHandler.onChatMessage(u1);
 
 		// 3. Unique 2 (Dust)
 		ChatMessage u2 = new ChatMessage();
 		u2.setType(ChatMessageType.GAMEMESSAGE);
 		u2.setMessage("Dust recipients: TestPlayer");
-		raidLootHandler.createChatHandler().handle(u2);
+		raidLootHandler.onChatMessage(u2);
 
 		// 4. Container
 		when(itemContainer.getItems()).thenReturn(new Item[]{
@@ -311,34 +221,12 @@ public class RaidLootHandlerTest
 		when(itemManager.getItemComposition(5678)).thenReturn(dustComp);
 
 		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
+		raidLootHandler.onItemContainerChanged(containerEvent);
 
 		// Should send ONE webhook with everything
 		verify(webhookService, times(1)).sendWebhook(anyString(), argThat(s -> 
 			s.contains("Twisted bow") && s.contains("Metamorphic dust") && s.contains("100 x Soul runes")
 		), any(), anyString(), eq(WebhookService.WebhookCategory.RAID_LOOT));
-	}
-
-	@Test
-	public void testOtherBingoItem()
-	{
-		// Config has "Dragon bones" in Other Items
-		when(config.otherBingoItems()).thenReturn("Dragon bones");
-		
-		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(536, 50)});
-		when(itemManager.getItemComposition(536)).thenReturn(itemComposition);
-		when(itemComposition.getName()).thenReturn("Dragon bones");
-
-		// Set raid context
-		ChatMessage kcEvent = new ChatMessage();
-		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
-		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
-
-		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(containerEvent);
-
-		verify(webhookService).sendWebhook(anyString(), contains("50 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 
 	@Test
@@ -365,11 +253,11 @@ public class RaidLootHandlerTest
 		ChatMessage kcEvent = new ChatMessage();
 		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
 		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
-		raidLootHandler.createChatHandler().handle(kcEvent);
+		raidLootHandler.onChatMessage(kcEvent);
 
 		// Container Changed event
 		ItemContainerChanged event = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(event);
+		raidLootHandler.onItemContainerChanged(event);
 
 		// Should send a webhook because total value is above threshold
 		verify(webhookService).sendWebhook(
@@ -388,7 +276,7 @@ public class RaidLootHandlerTest
 		ChatMessage uniqueEvent = new ChatMessage();
 		uniqueEvent.setType(ChatMessageType.GAMEMESSAGE);
 		uniqueEvent.setMessage("Loot recipient: Teammate - Tumeken's shadow (uncharged)");
-		raidLootHandler.createChatHandler().handle(uniqueEvent);
+		raidLootHandler.onChatMessage(uniqueEvent);
 
 		// Container change for ToA
 		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(1, 1)}); // Just some loot
@@ -398,7 +286,7 @@ public class RaidLootHandlerTest
 		when(config.minLootValue()).thenReturn(1000000);
 
 		ItemContainerChanged event = new ItemContainerChanged(801, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(event);
+		raidLootHandler.onItemContainerChanged(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), contains("received a rare drop"), any(), anyString(), any());
 	}
@@ -417,10 +305,10 @@ public class RaidLootHandlerTest
 		ChatMessage uniqueEvent = new ChatMessage();
 		uniqueEvent.setType(ChatMessageType.FRIENDSCHATNOTIFICATION);
 		uniqueEvent.setMessage("TestPlayer - Twisted bow");
-		raidLootHandler.createChatHandler().handle(uniqueEvent);
+		raidLootHandler.onChatMessage(uniqueEvent);
 
 		ItemContainerChanged event = new ItemContainerChanged(581, itemContainer);
-		raidLootHandler.createItemContainerHandler().handle(event);
+		raidLootHandler.onItemContainerChanged(event);
 
 		// Should still process and use default raid name
 		verify(webhookService).sendWebhook(

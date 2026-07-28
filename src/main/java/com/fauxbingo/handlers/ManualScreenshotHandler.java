@@ -4,6 +4,8 @@ import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import java.util.concurrent.ScheduledExecutorService;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.client.input.KeyManager;
@@ -13,6 +15,7 @@ import net.runelite.client.util.HotkeyListener;
  * Handles manual screenshot capture via keybind.
  */
 @Slf4j
+@Singleton
 public class ManualScreenshotHandler
 {
 	private final Client client;
@@ -24,6 +27,7 @@ public class ManualScreenshotHandler
 
 	private final HotkeyListener hotkeyListener;
 
+	@Inject
 	public ManualScreenshotHandler(
 		Client client,
 		FauxBingoConfig config,

@@ -1,24 +1,19 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.BingoConfigService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
-import com.fauxbingo.util.LootMatcher;
-import com.fauxbingo.util.SourceMatcher;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
-import lombok.Data;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -28,6 +23,7 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.Text;
 
@@ -36,6 +32,8 @@ import net.runelite.client.util.Text;
  * Tracks raid completions and unique drops from both raids.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class RaidLootHandler
 {
 	private static final Pattern COX_UNIQUE_MESSAGE_PATTERN = Pattern.compile("(.+) - (.+)");
@@ -67,7 +65,6 @@ public class RaidLootHandler
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final BingoConfigService bingoConfigService;
 	private final WebhookService webhookService;
 	private final LogService logService;
 	private final ScreenshotService screenshotService;
@@ -80,111 +77,54 @@ public class RaidLootHandler
 	private boolean raidProcessed = false;
 	private long lastProcessedTime = 0;
 
-	public RaidLootHandler(
-		Client client,
-		FauxBingoConfig config,
-		BingoConfigService bingoConfigService,
-		WebhookService webhookService,
-		LogService logService,
-		ScreenshotService screenshotService,
-		ScheduledExecutorService executor,
-		ItemManager itemManager)
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
 	{
-		this.client = client;
-		this.config = config;
-		this.bingoConfigService = bingoConfigService;
-		this.webhookService = webhookService;
-		this.logService = logService;
-		this.screenshotService = screenshotService;
-		this.executor = executor;
-		this.itemManager = itemManager;
+		if (!config.includeRaidLoot())
+		{
+			return;
+		}
+
+		if (event.getType() != ChatMessageType.GAMEMESSAGE
+			&& event.getType() != ChatMessageType.SPAM
+			&& event.getType() != ChatMessageType.TRADE
+			&& event.getType() != ChatMessageType.FRIENDSCHATNOTIFICATION)
+		{
+			return;
+		}
+
+		handleRaidChatMessage(event.getMessage());
 	}
 
-	public EventHandler<ChatMessage> createChatHandler()
+	@Subscribe
+	public void onWidgetLoaded(WidgetLoaded event)
 	{
-		return new EventHandler<ChatMessage>()
+		if (!config.includeRaidLoot())
 		{
-			@Override
-			public void handle(ChatMessage event)
-			{
-				if (!config.includeRaidLoot())
-				{
-					return;
-				}
+			return;
+		}
 
-				if (event.getType() != ChatMessageType.GAMEMESSAGE
-					&& event.getType() != ChatMessageType.SPAM
-					&& event.getType() != ChatMessageType.TRADE
-					&& event.getType() != ChatMessageType.FRIENDSCHATNOTIFICATION)
-				{
-					return;
-				}
+		int groupId = event.getGroupId();
 
-				String chatMessage = event.getMessage();
-				handleRaidChatMessage(chatMessage);
-			}
-
-			@Override
-			public Class<ChatMessage> getEventType()
-			{
-				return ChatMessage.class;
-			}
-		};
+		if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id || groupId == ToA_Interface_Id)
+		{
+			handleRaidRewardWidget();
+		}
 	}
 
-	public EventHandler<WidgetLoaded> createWidgetHandler()
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		return new EventHandler<WidgetLoaded>()
+		if (!config.includeRaidLoot())
 		{
-			@Override
-			public void handle(WidgetLoaded event)
-			{
-				if (!config.includeRaidLoot())
-				{
-					return;
-				}
+			return;
+		}
 
-				int groupId = event.getGroupId();
-
-				if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id || groupId == ToA_Interface_Id)
-				{
-					handleRaidRewardWidget(groupId);
-				}
-			}
-
-			@Override
-			public Class<WidgetLoaded> getEventType()
-			{
-				return WidgetLoaded.class;
-			}
-		};
-	}
-
-	public EventHandler<ItemContainerChanged> createItemContainerHandler()
-	{
-		return new EventHandler<ItemContainerChanged>()
+		int containerId = event.getContainerId();
+		if (containerId == CoX_Container_Id || containerId == ToB_Container_Id || containerId == ToA_Container_Id)
 		{
-			@Override
-			public void handle(ItemContainerChanged event)
-			{
-				if (!config.includeRaidLoot())
-				{
-					return;
-				}
-
-				int containerId = event.getContainerId();
-				if (containerId == CoX_Container_Id || containerId == ToB_Container_Id || containerId == ToA_Container_Id)
-				{
-					handleRaidInventory(containerId, event.getItemContainer());
-				}
-			}
-
-			@Override
-			public Class<ItemContainerChanged> getEventType()
-			{
-				return ItemContainerChanged.class;
-			}
-		};
+			handleRaidInventory(containerId, event.getItemContainer());
+		}
 	}
 
 	private void handleRaidChatMessage(String chatMessage)
@@ -305,7 +245,7 @@ public class RaidLootHandler
 		}
 	}
 
-	private void handleRaidRewardWidget(int groupId)
+	private void handleRaidRewardWidget()
 	{
 		// Widget loading is a good signal that we're looking at loot.
 		// If we haven't processed for a while, we can assume it's a new attempt.
@@ -352,7 +292,6 @@ public class RaidLootHandler
 	{
 		long totalValue = 0;
 		List<LootRecord.LootItem> allItems = new ArrayList<>();
-		List<LootRecord.LootItem> bingoItemsFound = new ArrayList<>();
 
 		for (Item item : itemContainer.getItems())
 		{
@@ -364,32 +303,21 @@ public class RaidLootHandler
 				int price = itemManager.getItemPrice(itemId);
 				totalValue += (long) price * quantity;
 
-				LootRecord.LootItem lootItem = LootRecord.LootItem.builder()
+				allItems.add(LootRecord.LootItem.builder()
 					.id(itemId)
 					.name(itemName)
 					.quantity(quantity)
 					.price(price)
-					.build();
-
-				allItems.add(lootItem);
-
-				if (isBingoItemForRaid(itemName, raidName))
-				{
-					bingoItemsFound.add(lootItem);
-				}
+					.build());
 			}
 		}
 
-		// Also check if any rareDrops from chat are not in the container (e.g. Dust/Kits might be special)
-		// Actually they are in the container, but we have them in rareDrops list already.
-		
 		boolean hasRareDrop = !rareDrops.isEmpty();
-		boolean hasBingoItem = !bingoItemsFound.isEmpty();
 		boolean isValuable = totalValue >= config.minLootValue();
 
-		if (hasRareDrop || hasBingoItem || isValuable)
+		if (hasRareDrop || isValuable)
 		{
-			sendConsolidatedRaidNotification(raidName, allItems, bingoItemsFound, totalValue);
+			sendConsolidatedRaidNotification(raidName, allItems, totalValue);
 		}
 		else
 		{
@@ -397,93 +325,18 @@ public class RaidLootHandler
 		}
 	}
 
-	private boolean isBingoItemForRaid(String itemName, String raidName)
-	{
-		List<String> raidConfigItems = getBingoItemsForRaid(raidName);
-		List<String> otherConfigItems = getOtherBingoItems();
-
-		if (LootMatcher.matchesAny(itemName, raidConfigItems) || LootMatcher.matchesAny(itemName, otherConfigItems))
-		{
-			return true;
-		}
-
-		var apiData = bingoConfigService != null ? bingoConfigService.getCachedConfig() : null;
-		if (apiData == null || apiData.getItems() == null)
-		{
-			return false;
-		}
-
-		for (BingoConfigService.BingoConfigItem apiItem : apiData.getItems())
-		{
-			if (!LootMatcher.matches(itemName, apiItem.getName()))
-			{
-				continue;
-			}
-			if (apiItem.getSource() == null || apiItem.getSource().isEmpty())
-			{
-				return true;
-			}
-			if (SourceMatcher.matches(raidName, apiItem.getSource()))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private List<String> getBingoItemsForRaid(String raidName)
-	{
-		String configItems = "";
-		if (raidName.contains("Chambers of Xeric"))
-		{
-			configItems = config.coxBingoItems();
-		}
-		else if (raidName.contains("Theatre of Blood"))
-		{
-			configItems = config.tobBingoItems();
-		}
-		else if (raidName.contains("Tombs of Amascut"))
-		{
-			configItems = config.toaBingoItems();
-		}
-
-		if (configItems == null || configItems.isEmpty())
-		{
-			return Collections.emptyList();
-		}
-
-		return Arrays.stream(configItems.split("[\n,]"))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
-	}
-
-	private void sendConsolidatedRaidNotification(String raidName, List<LootRecord.LootItem> allItems, List<LootRecord.LootItem> bingoItems, long totalValue)
+	private void sendConsolidatedRaidNotification(String raidName, List<LootRecord.LootItem> allItems, long totalValue)
 	{
 		String playerName = getLocalPlayerName();
 		StringBuilder message = new StringBuilder();
-		
-		String category = "Loot";
-		WebhookService.WebhookCategory webhookCategory = WebhookService.WebhookCategory.RAID_LOOT;
+
 		String bundlingItem = null;
 
 		if (!rareDrops.isEmpty())
 		{
-			category = "a Rare Drop";
 			bundlingItem = rareDrops.get(0);
 			message.append(String.format("**%s** just received a rare drop from %s: **%s**!\n",
 				playerName, raidName, String.join(", ", rareDrops)));
-		}
-		else if (!bingoItems.isEmpty())
-		{
-			category = "Bingo Loot";
-			webhookCategory = WebhookService.WebhookCategory.BINGO_LOOT;
-			bundlingItem = bingoItems.get(0).getName();
-			String itemsString = bingoItems.stream()
-				.map(i -> i.getQuantity() + " x " + i.getName())
-				.collect(Collectors.joining(", "));
-			message.append(String.format("**%s** just received Bingo loot from %s: **%s**!\n",
-				playerName, raidName, itemsString));
 		}
 		else
 		{
@@ -504,17 +357,8 @@ public class RaidLootHandler
 			message.append(String.format("\nKill Count: **%d**", raidKc));
 		}
 
-		takeScreenshotAndSend(message.toString(), bundlingItem, webhookCategory);
+		takeScreenshotAndSend(message.toString(), bundlingItem, WebhookService.WebhookCategory.RAID_LOOT);
 
-		// Log everything
-		if (!bingoItems.isEmpty())
-		{
-			for (LootRecord.LootItem item : bingoItems)
-			{
-				logBingoLoot(item.getName(), item.getQuantity(), raidName, raidKc);
-			}
-		}
-		
 		logGeneralLoot(allItems, totalValue, raidName, raidKc);
 	}
 
@@ -565,34 +409,6 @@ public class RaidLootHandler
 			.build();
 
 		logService.log("RAID_LOOT", lootRecord);
-	}
-
-	private List<String> getOtherBingoItems()
-	{
-		String otherItems = config.otherBingoItems();
-		if (otherItems == null || otherItems.isEmpty())
-		{
-			return Collections.emptyList();
-		}
-
-		return Arrays.stream(otherItems.split("[\n,]"))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
-	}
-
-	private void logBingoLoot(String itemName, int quantity, String raidName, Integer kc)
-	{
-		LootRecord lootRecord = LootRecord.builder()
-			.source(raidName)
-			.items(Collections.singletonList(LootRecord.LootItem.builder()
-				.name(itemName)
-				.quantity(quantity)
-				.build()))
-			.kc(kc)
-			.build();
-
-		logService.log("BINGO_LOOT", lootRecord);
 	}
 
 	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)

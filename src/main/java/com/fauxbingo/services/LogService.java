@@ -1,6 +1,7 @@
 package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.FauxBingoPlugin;
 import com.fauxbingo.services.data.LogEntry;
 import com.google.gson.Gson;
 import java.io.IOException;
@@ -9,7 +10,11 @@ import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -25,6 +30,7 @@ import okhttp3.Response;
  * Service responsible for queueing and sending data logs to an external API for post Bingo statistics
  */
 @Slf4j
+@Singleton
 public class LogService
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
@@ -38,17 +44,38 @@ public class LogService
 	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
+	private final ScheduledExecutorService executor;
 	private final Queue<LogEntry> queue = new ConcurrentLinkedQueue<>();
 
-	public LogService(Client client, FauxBingoConfig config, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
+	private ScheduledFuture<?> flushTask = null;
+
+	@Inject
+	public LogService(Client client, FauxBingoConfig config, @Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
 		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
+		this.executor = executor;
+	}
 
-		executor.scheduleAtFixedRate(this::flushQueue, FLUSH_INTERVAL_SECONDS, FLUSH_INTERVAL_SECONDS, TimeUnit.SECONDS);
+	public void start()
+	{
+		if (flushTask != null && !flushTask.isCancelled())
+		{
+			return;
+		}
+		flushTask = executor.scheduleAtFixedRate(this::flushQueue, FLUSH_INTERVAL_SECONDS, FLUSH_INTERVAL_SECONDS, TimeUnit.SECONDS);
+	}
+
+	public void shutdown()
+	{
+		if (flushTask != null)
+		{
+			flushTask.cancel(false);
+			flushTask = null;
+		}
 	}
 
 	/**

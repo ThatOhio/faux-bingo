@@ -2,6 +2,9 @@ package com.fauxbingo.trackers;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.WiseOldManService;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -20,6 +23,8 @@ import java.util.Map;
  * - Player levels up during the session
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class XpTracker
 {
 	private static final int XP_THRESHOLD = 10_000;
@@ -34,13 +39,6 @@ public class XpTracker
 	private boolean fetchXp = false;
 	private String playerName;
 	private long accountHash;
-
-	public XpTracker(Client client, FauxBingoConfig config, WiseOldManService wiseOldManService)
-	{
-		this.client = client;
-		this.config = config;
-		this.wiseOldManService = wiseOldManService;
-	}
 
 	public void onStatChanged(StatChanged event)
 	{

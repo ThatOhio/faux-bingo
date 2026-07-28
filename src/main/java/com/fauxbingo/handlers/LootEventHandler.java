@@ -1,17 +1,12 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.BingoConfigService;
-import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
-import com.fauxbingo.util.LootMatcher;
-import com.fauxbingo.util.SourceMatcher;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.Iterator;
@@ -19,12 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
 import net.runelite.api.NPCComposition;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.events.ServerNpcLoot;
@@ -38,11 +34,10 @@ import net.runelite.http.api.loottracker.LootRecordType;
  * Calculates total loot value and triggers webhook notifications when threshold is met.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class LootEventHandler
 {
-	/** Loot tracker names event sources like "Reward pool (Tempoross)". */
-	private static final Pattern TRAILING_PARENTHETICAL = Pattern.compile("\\(([^()]+)\\)\\s*$");
-
 	/**
 	 * How long a kill stays eligible to be paired with its counterpart event.
 	 */
@@ -78,72 +73,23 @@ public class LootEventHandler
 		}
 	}
 
-	private final Client client;
 	private final FauxBingoConfig config;
-	private final BingoConfigService bingoConfigService;
-	private final InteractionTrackingService interactionTrackingService;
 	private final ItemManager itemManager;
 	private final WebhookService webhookService;
 	private final LogService logService;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 
-	public LootEventHandler(
-		Client client,
-		FauxBingoConfig config,
-		BingoConfigService bingoConfigService,
-		InteractionTrackingService interactionTrackingService,
-		ItemManager itemManager,
-		WebhookService webhookService,
-		LogService logService,
-		ScreenshotService screenshotService,
-		ScheduledExecutorService executor)
+	@Subscribe
+	public void onNpcLootReceived(NpcLootReceived event)
 	{
-		this.client = client;
-		this.config = config;
-		this.bingoConfigService = bingoConfigService;
-		this.interactionTrackingService = interactionTrackingService;
-		this.itemManager = itemManager;
-		this.webhookService = webhookService;
-		this.logService = logService;
-		this.screenshotService = screenshotService;
-		this.executor = executor;
+		processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN);
 	}
 
-	public EventHandler<NpcLootReceived> createNpcLootHandler()
+	@Subscribe
+	public void onPlayerLootReceived(PlayerLootReceived event)
 	{
-		return new EventHandler<NpcLootReceived>()
-		{
-			@Override
-			public void handle(NpcLootReceived event)
-			{
-				processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN);
-			}
-
-			@Override
-			public Class<NpcLootReceived> getEventType()
-			{
-				return NpcLootReceived.class;
-			}
-		};
-	}
-
-	public EventHandler<PlayerLootReceived> createPlayerLootHandler()
-	{
-		return new EventHandler<PlayerLootReceived>()
-		{
-			@Override
-			public void handle(PlayerLootReceived event)
-			{
-				processLoot(event.getPlayer().getName(), event.getItems());
-			}
-
-			@Override
-			public Class<PlayerLootReceived> getEventType()
-			{
-				return PlayerLootReceived.class;
-			}
-		};
+		processLoot(event.getPlayer().getName(), event.getItems());
 	}
 
 	/**
@@ -151,23 +97,11 @@ public class LootEventHandler
 	 * tile (Yama at his throne for example) have no case in LootManager's getDropLocations, 
 	 * so this is the only event they ever produce.
 	 */
-	public EventHandler<ServerNpcLoot> createServerNpcLootHandler()
+	@Subscribe
+	public void onServerNpcLoot(ServerNpcLoot event)
 	{
-		return new EventHandler<ServerNpcLoot>()
-		{
-			@Override
-			public void handle(ServerNpcLoot event)
-			{
-				NPCComposition npc = event.getComposition();
-				processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER);
-			}
-
-			@Override
-			public Class<ServerNpcLoot> getEventType()
-			{
-				return ServerNpcLoot.class;
-			}
-		};
+		NPCComposition npc = event.getComposition();
+		processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER);
 	}
 
 	/**
@@ -226,34 +160,22 @@ public class LootEventHandler
 	 * the Rift, and friends) never produces an NpcLootReceived. It only surfaces as a LootReceived
 	 * from the Loot Tracker plugin, so this is the only way we see any of it.
 	 */
-	public EventHandler<LootReceived> createEventLootHandler()
+	@Subscribe
+	public void onLootReceived(LootReceived event)
 	{
-		return new EventHandler<LootReceived>()
+		// NPC and player kills already reach us through LootManager
+		if (event.getType() != LootRecordType.EVENT)
 		{
-			@Override
-			public void handle(LootReceived event)
-			{
-				// NPC and player kills already reach us through LootManager
-				if (event.getType() != LootRecordType.EVENT)
-				{
-					return;
-				}
+			return;
+		}
 
-				Collection<ItemStack> items = event.getItems();
-				if (items == null || items.isEmpty())
-				{
-					return;
-				}
+		Collection<ItemStack> items = event.getItems();
+		if (items == null || items.isEmpty())
+		{
+			return;
+		}
 
-				processLoot(event.getName(), items);
-			}
-
-			@Override
-			public Class<LootReceived> getEventType()
-			{
-				return LootReceived.class;
-			}
-		};
+		processLoot(event.getName(), items);
 	}
 
 	private void processLoot(String source, Collection<ItemStack> items)
@@ -312,105 +234,6 @@ public class LootEventHandler
 
 		// Always log to the external API if enabled
 		logLoot(source, items, totalValue);
-
-		// Check for other bingo items
-		checkOtherBingoItems(source, items);
-	}
-
-	private void checkOtherBingoItems(String source, Collection<ItemStack> items)
-	{
-		List<String> sourcesToCheck = new java.util.ArrayList<>();
-		if (source != null && !source.isEmpty())
-		{
-			sourcesToCheck.add(source);
-			// A tile configured as "Tempoross" should still hit on "Reward pool (Tempoross)".
-			String bareName = extractParenthetical(source);
-			if (bareName != null)
-			{
-				sourcesToCheck.add(bareName);
-			}
-		}
-		if (interactionTrackingService != null)
-		{
-			sourcesToCheck.addAll(interactionTrackingService.getRecentInteractionNames());
-		}
-
-		for (ItemStack itemStack : items)
-		{
-			String itemName = itemManager.getItemComposition(itemStack.getId()).getName();
-			if (isBingoItemForLoot(itemName, sourcesToCheck))
-			{
-				sendBingoNotification(source, itemName, itemStack.getQuantity());
-			}
-		}
-	}
-
-	private static String extractParenthetical(String source)
-	{
-		Matcher matcher = TRAILING_PARENTHETICAL.matcher(source);
-		if (!matcher.find())
-		{
-			return null;
-		}
-		String inner = matcher.group(1).trim();
-		return inner.isEmpty() ? null : inner;
-	}
-
-	private boolean isBingoItemForLoot(String itemName, List<String> sourcesToCheck)
-	{
-		List<String> otherConfigItems = getOtherConfigBingoItems();
-		if (LootMatcher.matchesAny(itemName, otherConfigItems))
-		{
-			return true;
-		}
-
-		var apiData = bingoConfigService != null ? bingoConfigService.getCachedConfig() : null;
-		if (apiData == null || apiData.getItems() == null)
-		{
-			return false;
-		}
-
-		for (BingoConfigService.BingoConfigItem apiItem : apiData.getItems())
-		{
-			if (!LootMatcher.matches(itemName, apiItem.getName()))
-			{
-				continue;
-			}
-			if (apiItem.getSource() == null || apiItem.getSource().isEmpty())
-			{
-				return true;
-			}
-			for (String src : sourcesToCheck)
-			{
-				if (src != null && SourceMatcher.matches(src, apiItem.getSource()))
-				{
-					return true;
-				}
-			}
-		}
-		return false;
-	}
-
-	private List<String> getOtherConfigBingoItems()
-	{
-		String otherItemsConfig = config.otherBingoItems();
-		if (otherItemsConfig == null || otherItemsConfig.isEmpty())
-		{
-			return java.util.Collections.emptyList();
-		}
-		return Arrays.stream(otherItemsConfig.split("[\n,]"))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
-	}
-
-	private void sendBingoNotification(String source, String itemName, int quantity)
-	{
-		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
-		String message = String.format("**%s** just received a special item from %s: **%d x %s**!",
-			playerName, source, quantity, itemName);
-
-		takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
 	}
 
 	private void logLoot(String source, Collection<ItemStack> items, long totalValue)

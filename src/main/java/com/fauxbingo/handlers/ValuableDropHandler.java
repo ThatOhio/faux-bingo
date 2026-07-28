@@ -5,30 +5,34 @@ import com.fauxbingo.services.LogService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
-import com.fauxbingo.util.LootMatcher;
-import java.lang.reflect.Array;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.client.eventbus.Subscribe;
 
 /**
  * Handles valuable drop notifications from chat messages.
  * Detects when the game announces a valuable drop. Logs all; webhook only when >= minLootValue.
  */
 @Slf4j
-public class ValuableDropHandler implements EventHandler<ChatMessage>
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
+public class ValuableDropHandler
 {
 	private static final Pattern VALUABLE_DROP_PATTERN = Pattern.compile(
 		".*Valuable drop: ([^<>]+?\\(((?:\\d+,?)+) coins\\))(?:</col>)?"
 	);
+
+	/** The chat line embeds quantity in the name, as in "30 x Dragon bones". */
+	private static final Pattern QUANTITY_PREFIX = Pattern.compile("^([0-9,]+) x ");
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -37,24 +41,8 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 
-	public ValuableDropHandler(
-		Client client,
-		FauxBingoConfig config,
-		WebhookService webhookService,
-		LogService logService,
-		ScreenshotService screenshotService,
-		ScheduledExecutorService executor)
-	{
-		this.client = client;
-		this.config = config;
-		this.webhookService = webhookService;
-		this.logService = logService;
-		this.screenshotService = screenshotService;
-		this.executor = executor;
-	}
-
-	@Override
-	public void handle(ChatMessage event)
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
 	{
 		if (!config.includeValuableDrops())
 		{
@@ -72,61 +60,15 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 		if (matcher.matches())
 		{
 			long valuableDropValue = Long.parseLong(matcher.group(2).replaceAll(",", ""));
-			String[] valuableDrop = matcher.group(1).split(" \\(");
-			String valuableDropName = (String) Array.get(valuableDrop, 0);
+			String valuableDropName = matcher.group(1).split(" \\(")[0];
 			String valuableDropValueString = matcher.group(2);
 
-			logValuableDrop(valuableDropName, valuableDropValueString);
+			logValuableDrop(valuableDropName, valuableDropValue);
 			if (valuableDropValue >= config.minLootValue())
 			{
 				sendValuableDropNotification(valuableDropName, valuableDropValueString);
 			}
-
-			checkOtherBingoItems(valuableDropName);
 		}
-	}
-
-	private void checkOtherBingoItems(String itemNameWithQuantity)
-	{
-		String otherItemsConfig = config.otherBingoItems();
-		if (otherItemsConfig == null || otherItemsConfig.isEmpty())
-		{
-			return;
-		}
-
-		List<String> otherBingoItems = Arrays.stream(otherItemsConfig.split("[\n,]"))
-			.map(String::trim)
-			.filter(s -> !s.isEmpty())
-			.collect(Collectors.toList());
-
-		String itemName = cleanItemName(itemNameWithQuantity);
-		if (LootMatcher.matchesAny(itemName, otherBingoItems))
-		{
-			int quantity = 1;
-			Pattern quantityPattern = Pattern.compile("^([0-9,]+) x ");
-			Matcher quantityMatcher = quantityPattern.matcher(itemNameWithQuantity);
-			if (quantityMatcher.find())
-			{
-				quantity = Integer.parseInt(quantityMatcher.group(1).replaceAll(",", ""));
-			}
-
-			sendBingoNotification(itemName, quantity);
-		}
-	}
-
-	private void sendBingoNotification(String itemName, int quantity)
-	{
-		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
-		String message = String.format("**%s** just received a special item: **%d x %s**!",
-			playerName, quantity, itemName);
-
-		takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.BINGO_LOOT);
-	}
-
-	@Override
-	public Class<ChatMessage> getEventType()
-	{
-		return ChatMessage.class;
 	}
 
 	private void sendValuableDropNotification(String itemName, String itemValue)
@@ -147,19 +89,37 @@ public class ValuableDropHandler implements EventHandler<ChatMessage>
 			return null;
 		}
 		// Strip quantity prefix like "30 x " or "1,000 x " to help with bundling across different handlers
-		return itemName.replaceAll("^[0-9,]+ x ", "");
+		return QUANTITY_PREFIX.matcher(itemName).replaceFirst("");
 	}
 
-	private void logValuableDrop(String itemName, String itemValue)
+	/** The chat text is the only source for quantity, so parse it out rather than assuming 1. */
+	private static int parseQuantity(String itemNameWithQuantity)
 	{
-		long value = Long.parseLong(itemValue.replaceAll(",", ""));
+		Matcher matcher = QUANTITY_PREFIX.matcher(itemNameWithQuantity);
+		if (!matcher.find())
+		{
+			return 1;
+		}
+		try
+		{
+			return Math.max(1, Integer.parseInt(matcher.group(1).replaceAll(",", "")));
+		}
+		catch (NumberFormatException e)
+		{
+			return 1;
+		}
+	}
+
+	private void logValuableDrop(String itemNameWithQuantity, long value)
+	{
+		int quantity = parseQuantity(itemNameWithQuantity);
 
 		LootRecord lootRecord = LootRecord.builder()
 			.source("Valuable Drop")
 			.items(Collections.singletonList(LootRecord.LootItem.builder()
-				.name(itemName)
-				.quantity(1)
-				.price((int) value) // might overflow if > 2B, but item prices are usually ints
+				.name(cleanItemName(itemNameWithQuantity))
+				.quantity(quantity)
+				.price((int) (value / quantity)) // might overflow if > 2B, but item prices are usually ints
 				.build()))
 			.totalValue(value)
 			.build();

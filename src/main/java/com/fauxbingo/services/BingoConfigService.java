@@ -1,6 +1,7 @@
 package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
+import com.fauxbingo.FauxBingoPlugin;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import java.awt.Color;
@@ -14,6 +15,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Singleton;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +33,11 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * Fetches character-specific bingo config (webhooks, items with optional source filtering)
- * from the logging API. Caches in-memory with 30s window. Retries with exponential backoff.
+ * Fetches character-specific bingo config (webhooks, team overlay settings) from the logging API.
+ * Caches in-memory with 30s window. Retries with exponential backoff.
  */
 @Slf4j
+@Singleton
 public class BingoConfigService
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
@@ -60,7 +65,8 @@ public class BingoConfigService
 	private long nextRetryDelayMs = INITIAL_RETRY_DELAY_MS;
 	private String currentCharacterName = null;
 
-	public BingoConfigService(Client client, FauxBingoConfig config, ConfigManager configManager, String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
+	@Inject
+	public BingoConfigService(Client client, FauxBingoConfig config, ConfigManager configManager, @Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient, Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
@@ -337,8 +343,8 @@ public class BingoConfigService
 	}
 
 	/**
-	 * If teamConfig is present and valid, updates overlay config (displayOverlay, displayDateTime,
-	 * teamName, teamNameColor, dateTimeColor). All-or-nothing: any validation failure skips all updates.
+	 * If teamConfig is present and valid, updates overlay config (displayDateTime, teamName,
+	 * teamNameColor, dateTimeColor). All-or-nothing: any validation failure skips all updates.
 	 */
 	private void applyTeamConfigFromResponse(BingoConfigResponse parsed)
 	{
@@ -371,20 +377,10 @@ public class BingoConfigService
 
 		try
 		{
-			// Now that bingo is over we no longer need to force this to on,
-			// Future update will have this toggle on based on the Api.
-			//configManager.setConfiguration(CONFIG_GROUP, "displayOverlay", true);
 			configManager.setConfiguration(CONFIG_GROUP, "displayDateTime", true);
 			configManager.setConfiguration(CONFIG_GROUP, "teamName", teamName.trim());
 			configManager.setConfiguration(CONFIG_GROUP, "teamNameColor", teamNameColor);
 			configManager.setConfiguration(CONFIG_GROUP, "dateTimeColor", dateTimeColor);
-
-			// To avoid spamming the bingo channels, raise the min value when applying bingo config.
-			if (config.minLootValue() < 1500000)
-			{
-				// This should also conditionally happen based on bingo window from Api
-				//configManager.setConfiguration(CONFIG_GROUP, "minLootValue", 1500000);
-			}
 		}
 		catch (Exception e)
 		{
@@ -461,37 +457,15 @@ public class BingoConfigService
 	public static class BingoConfigData
 	{
 		private final List<String> webhooks;
-		private final List<BingoConfigItem> items;
 
-		public BingoConfigData(List<String> webhooks, List<BingoConfigItem> items)
+		public BingoConfigData(List<String> webhooks)
 		{
 			this.webhooks = webhooks != null ? List.copyOf(webhooks) : Collections.emptyList();
-			this.items = items != null ? List.copyOf(items) : Collections.emptyList();
 		}
 
 		static BingoConfigData from(BingoConfigResponse r)
 		{
-			List<BingoConfigItem> items = Collections.emptyList();
-			if (r.items != null)
-			{
-				items = r.items.stream()
-					.map(dto -> new BingoConfigItem(dto.name, dto.source))
-					.collect(Collectors.toList());
-			}
-			return new BingoConfigData(r.webhooks, items);
-		}
-	}
-
-	@Getter
-	public static class BingoConfigItem
-	{
-		private final String name;
-		private final String source;
-
-		public BingoConfigItem(String name, String source)
-		{
-			this.name = name;
-			this.source = source == null || source.isEmpty() ? null : source;
+			return new BingoConfigData(r.webhooks);
 		}
 	}
 
@@ -499,9 +473,6 @@ public class BingoConfigService
 	{
 		@SerializedName("webhooks")
 		List<String> webhooks;
-
-		@SerializedName("items")
-		List<BingoConfigItemDto> items;
 
 		@SerializedName("teamConfig")
 		TeamConfigDto teamConfig;
@@ -517,14 +488,5 @@ public class BingoConfigService
 
 		@SerializedName("dateTimeColor")
 		String dateTimeColor;
-	}
-
-	private static class BingoConfigItemDto
-	{
-		@SerializedName("name")
-		String name;
-
-		@SerializedName("source")
-		String source;
 	}
 }

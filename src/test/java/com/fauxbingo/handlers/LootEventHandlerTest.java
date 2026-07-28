@@ -6,7 +6,6 @@ import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import java.util.Arrays;
 import java.util.concurrent.ScheduledExecutorService;
-import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
@@ -26,15 +25,11 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class LootEventHandlerTest
 {
-	@Mock
-	private Client client;
-
 	@Mock
 	private FauxBingoConfig config;
 
@@ -67,7 +62,7 @@ public class LootEventHandlerTest
 	@Before
 	public void before()
 	{
-		lootEventHandler = new LootEventHandler(client, config, null, null, itemManager, webhookService, logService, screenshotService, executor);
+		lootEventHandler = new LootEventHandler(config, itemManager, webhookService, logService, screenshotService, executor);
 		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.minLootValue()).thenReturn(1000000);
 
@@ -97,7 +92,7 @@ public class LootEventHandlerTest
 		ItemStack item = new ItemStack(536, 400, null); // 400 * 2500 = 1,000,000
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item));
 
-		lootEventHandler.createNpcLootHandler().handle(event);
+		lootEventHandler.onNpcLootReceived(event);
 
 		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
@@ -110,7 +105,7 @@ public class LootEventHandlerTest
 		ItemStack item = new ItemStack(536, 400, null);
 		PlayerLootReceived event = new PlayerLootReceived(player, Arrays.asList(item));
 
-		lootEventHandler.createPlayerLootHandler().handle(event);
+		lootEventHandler.onPlayerLootReceived(event);
 
 		verify(webhookService).sendWebhook(anyString(), contains("PKedPlayer"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
@@ -124,7 +119,7 @@ public class LootEventHandlerTest
 		ItemStack item2 = new ItemStack(537, 200, null); // 500,000
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item1, item2));
 
-		lootEventHandler.createNpcLootHandler().handle(event);
+		lootEventHandler.onNpcLootReceived(event);
 	// The most valuable item should now be used as the itemName bundling key
 		verify(webhookService).sendWebhook(anyString(), contains("Vorkath"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.LOOT));
 		verify(logService).log(eq("LOOT"), any());
@@ -137,24 +132,10 @@ public class LootEventHandlerTest
 		ItemStack item = new ItemStack(536, 1, null);
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item));
 
-		lootEventHandler.createNpcLootHandler().handle(event);
+		lootEventHandler.onNpcLootReceived(event);
 
 		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
 		verify(logService).log(eq("LOOT"), any()); // Should still log to external API
-	}
-
-	@Test
-	public void testOtherBingoItem()
-	{
-		when(config.otherBingoItems()).thenReturn("Dragon bones");
-		when(npc.getName()).thenReturn("Vorkath");
-		ItemStack item = new ItemStack(536, 1, null); // Only 1 bone, way below 1M threshold
-		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item));
-
-		lootEventHandler.createNpcLootHandler().handle(event);
-
-		// Should send bingo notification even though it's below minLootValue
-		verify(webhookService).sendWebhook(anyString(), contains("1 x Dragon bones"), any(), eq("Dragon bones"), eq(WebhookService.WebhookCategory.BINGO_LOOT));
 	}
 
 	@Test
@@ -185,7 +166,7 @@ public class LootEventHandlerTest
 		ItemStack tele = new ItemStack(200, 8, null);
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(shark1, shark2, tele));
 
-		lootEventHandler.createNpcLootHandler().handle(event);
+		lootEventHandler.onNpcLootReceived(event);
 
 		ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
 		verify(webhookService).sendWebhook(anyString(), messageCaptor.capture(), any(), anyString(), eq(WebhookService.WebhookCategory.LOOT));

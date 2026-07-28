@@ -3,19 +3,24 @@ package com.fauxbingo.services;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import com.fauxbingo.handlers.EventHandler;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.events.InteractingChanged;
+import net.runelite.client.eventbus.Subscribe;
 
 /**
  * Tracks entities the player interacts with in a rolling 10-second window.
- * Shared by LootEventHandler (source filtering) and DeathHandler (killer detection).
+ * Used by DeathHandler for killer detection.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class InteractionTrackingService
 {
 	private static final long WINDOW_MS = 10_000;
@@ -23,29 +28,7 @@ public class InteractionTrackingService
 	private final Client client;
 	private final ConcurrentLinkedQueue<InteractionEntry> interactions = new ConcurrentLinkedQueue<>();
 
-	public InteractionTrackingService(Client client)
-	{
-		this.client = client;
-	}
-
-	public EventHandler<InteractingChanged> createInteractingChangedHandler()
-	{
-		return new EventHandler<InteractingChanged>()
-		{
-			@Override
-			public void handle(InteractingChanged event)
-			{
-				onInteractingChanged(event);
-			}
-
-			@Override
-			public Class<InteractingChanged> getEventType()
-			{
-				return InteractingChanged.class;
-			}
-		};
-	}
-
+	@Subscribe
 	public void onInteractingChanged(InteractingChanged event)
 	{
 		Actor local = client.getLocalPlayer();
@@ -63,7 +46,8 @@ public class InteractionTrackingService
 
 	/**
 	 * Returns names of entities the player has interacted with in the last 10 seconds.
-	 * Used for source matching in LootEventHandler.
+	 * Currently uncalled. Kept for the v1 events API, which needs it to guess PET.sourceName
+	 * (the pet chat message never names its source).
 	 */
 	public List<String> getRecentInteractionNames()
 	{

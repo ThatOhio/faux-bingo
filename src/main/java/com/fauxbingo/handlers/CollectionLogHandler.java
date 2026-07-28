@@ -7,6 +7,9 @@ import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.data.LootRecord;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -15,6 +18,7 @@ import net.runelite.api.VarClientStr;
 import net.runelite.api.Varbits;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ScriptPreFired;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
@@ -22,6 +26,8 @@ import net.runelite.client.util.Text;
  * Detects new collection log items through both chat messages and notification scripts.
  */
 @Slf4j
+@Singleton
+@RequiredArgsConstructor(onConstructor_ = @Inject)
 public class CollectionLogHandler
 {
 	private static final String COLLECTION_LOG_TEXT = "New item added to your collection log: ";
@@ -35,96 +41,56 @@ public class CollectionLogHandler
 
 	private boolean notificationStarted = false;
 
-	public CollectionLogHandler(
-		Client client,
-		FauxBingoConfig config,
-		WebhookService webhookService,
-		LogService logService,
-		ScreenshotService screenshotService,
-		ScheduledExecutorService executor)
+	@Subscribe
+	public void onChatMessage(ChatMessage event)
 	{
-		this.client = client;
-		this.config = config;
-		this.webhookService = webhookService;
-		this.logService = logService;
-		this.screenshotService = screenshotService;
-		this.executor = executor;
+		if (!config.includeCollectionLog())
+		{
+			return;
+		}
+
+		if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM)
+		{
+			return;
+		}
+
+		String chatMessage = event.getMessage();
+		if (chatMessage.startsWith(COLLECTION_LOG_TEXT) &&
+			client.getVarbitValue(Varbits.COLLECTION_LOG_NOTIFICATION) == 1)
+		{
+			String entry = Text.removeTags(chatMessage).substring(COLLECTION_LOG_TEXT.length());
+			sendCollectionLogNotification(entry);
+		}
 	}
 
-	public EventHandler<ChatMessage> createChatHandler()
+	@Subscribe
+	public void onScriptPreFired(ScriptPreFired event)
 	{
-		return new EventHandler<ChatMessage>()
+		if (!config.includeCollectionLog())
 		{
-			@Override
-			public void handle(ChatMessage event)
-			{
-				if (!config.includeCollectionLog())
+			return;
+		}
+
+		switch (event.getScriptId())
+		{
+			case ScriptID.NOTIFICATION_START:
+				notificationStarted = true;
+				break;
+			case ScriptID.NOTIFICATION_DELAY:
+				if (!notificationStarted)
 				{
 					return;
 				}
-
-				if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM)
+				String notificationTopText = client.getVarcStrValue(VarClientStr.NOTIFICATION_TOP_TEXT);
+				String notificationBottomText = client.getVarcStrValue(VarClientStr.NOTIFICATION_BOTTOM_TEXT);
+				if (notificationTopText.equalsIgnoreCase("Collection log"))
 				{
-					return;
-				}
-
-				String chatMessage = event.getMessage();
-				if (chatMessage.startsWith(COLLECTION_LOG_TEXT) && 
-					client.getVarbitValue(Varbits.COLLECTION_LOG_NOTIFICATION) == 1)
-				{
-					String entry = Text.removeTags(chatMessage).substring(COLLECTION_LOG_TEXT.length());
+					String entry = Text.removeTags(notificationBottomText).substring("New item:".length()).trim();
 					sendCollectionLogNotification(entry);
 				}
-			}
-
-			@Override
-			public Class<ChatMessage> getEventType()
-			{
-				return ChatMessage.class;
-			}
-		};
-	}
-
-	public EventHandler<ScriptPreFired> createScriptHandler()
-	{
-		return new EventHandler<ScriptPreFired>()
-		{
-			@Override
-			public void handle(ScriptPreFired event)
-			{
-				if (!config.includeCollectionLog())
-				{
-					return;
-				}
-
-				switch (event.getScriptId())
-				{
-					case ScriptID.NOTIFICATION_START:
-						notificationStarted = true;
-						break;
-					case ScriptID.NOTIFICATION_DELAY:
-						if (!notificationStarted)
-						{
-							return;
-						}
-						String notificationTopText = client.getVarcStrValue(VarClientStr.NOTIFICATION_TOP_TEXT);
-						String notificationBottomText = client.getVarcStrValue(VarClientStr.NOTIFICATION_BOTTOM_TEXT);
-						if (notificationTopText.equalsIgnoreCase("Collection log"))
-						{
-							String entry = Text.removeTags(notificationBottomText).substring("New item:".length()).trim();
-							sendCollectionLogNotification(entry);
-						}
-						notificationStarted = false;
-						break;
-				}
-			}
-
-			@Override
-			public Class<ScriptPreFired> getEventType()
-			{
-				return ScriptPreFired.class;
-			}
-		};
+				notificationStarted = false;
+				break;
+		}
 	}
 
 	private void sendCollectionLogNotification(String itemName)

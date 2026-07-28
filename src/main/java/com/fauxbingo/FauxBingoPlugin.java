@@ -43,6 +43,8 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.PluginManager;
+import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.DrawManager;
 import net.runelite.client.ui.overlay.OverlayManager;
 import okhttp3.OkHttpClient;
@@ -57,6 +59,8 @@ public class FauxBingoPlugin extends Plugin
 {
 	/** Base URL for the bingo API (logs, deaths, bingo-config). Not configurable. */
 	private static final String BINGO_API_BASE_URL = "https://faux-api.thatohio.me";
+
+	private static final String LOOT_TRACKER_PLUGIN_NAME = "Loot Tracker";
 
 	@Inject
 	private Client client;
@@ -93,6 +97,9 @@ public class FauxBingoPlugin extends Plugin
 
 	@Inject
 	private ConfigManager configManager;
+
+	@Inject
+	private PluginManager pluginManager;
 
 	private EventProcessor eventProcessor;
 	private BingoConfigService bingoConfigService;
@@ -144,6 +151,7 @@ public class FauxBingoPlugin extends Plugin
 		// Register event handlers
 		eventProcessor.registerHandler(lootEventHandler.createNpcLootHandler());
 		eventProcessor.registerHandler(lootEventHandler.createPlayerLootHandler());
+		eventProcessor.registerHandler(lootEventHandler.createEventLootHandler());
 		eventProcessor.registerHandler(petChatHandler);
 		eventProcessor.registerHandler(collectionLogHandler.createChatHandler());
 		eventProcessor.registerHandler(collectionLogHandler.createScriptHandler());
@@ -162,6 +170,8 @@ public class FauxBingoPlugin extends Plugin
 		overlayManager.add(teamOverlay);
 
 		log.info("Event processor initialized with all handlers");
+
+		warnIfLootTrackerDisabled();
 
 		// Check if already logged in
 		checkLogin();
@@ -227,6 +237,12 @@ public class FauxBingoPlugin extends Plugin
 
 	@Subscribe
 	public void onPlayerLootReceived(PlayerLootReceived event)
+	{
+		eventProcessor.processEvent(event);
+	}
+
+	@Subscribe
+	public void onLootReceived(LootReceived event)
 	{
 		eventProcessor.processEvent(event);
 	}
@@ -348,6 +364,33 @@ public class FauxBingoPlugin extends Plugin
 		if (deathHandler != null)
 		{
 			deathHandler.resetState();
+		}
+	}
+
+	private void warnIfLootTrackerDisabled()
+	{
+		try
+		{
+			for (Plugin plugin : pluginManager.getPlugins())
+			{
+				if (!LOOT_TRACKER_PLUGIN_NAME.equals(plugin.getName()))
+				{
+					continue;
+				}
+
+				if (!pluginManager.isPluginEnabled(plugin))
+				{
+					log.warn("Loot Tracker is disabled. Loot from Tempoross, Wintertodt, clue caskets, "
+						+ "chests and other non-combat sources will not be reported.");
+				}
+				return;
+			}
+
+			log.warn("Loot Tracker not found. Non-combat loot will not be reported.");
+		}
+		catch (Exception e)
+		{
+			log.debug("Could not determine Loot Tracker state", e);
 		}
 	}
 

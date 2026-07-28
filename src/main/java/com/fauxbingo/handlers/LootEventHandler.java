@@ -15,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -22,14 +24,19 @@ import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
+import net.runelite.client.plugins.loottracker.LootReceived;
+import net.runelite.http.api.loottracker.LootRecordType;
 
 /**
- * Handles loot-related events from NPCs and players.
+ * Handles loot-related events from NPCs, players, and non-combat sources.
  * Calculates total loot value and triggers webhook notifications when threshold is met.
  */
 @Slf4j
 public class LootEventHandler
 {
+	/** Loot tracker names event sources like "Reward pool (Tempoross)". */
+	private static final Pattern TRAILING_PARENTHETICAL = Pattern.compile("\\(([^()]+)\\)\\s*$");
+
 	private final Client client;
 	private final FauxBingoConfig config;
 	private final BingoConfigService bingoConfigService;
@@ -94,6 +101,41 @@ public class LootEventHandler
 			public Class<PlayerLootReceived> getEventType()
 			{
 				return PlayerLootReceived.class;
+			}
+		};
+	}
+
+	/**
+	 * Non-combat loot (Tempoross reward pool, Wintertodt crates, clue caskets, chests, Guardians of
+	 * the Rift, and friends) never produces an NpcLootReceived. It only surfaces as a LootReceived
+	 * from the Loot Tracker plugin, so this is the only way we see any of it.
+	 */
+	public EventHandler<LootReceived> createEventLootHandler()
+	{
+		return new EventHandler<LootReceived>()
+		{
+			@Override
+			public void handle(LootReceived event)
+			{
+				// NPC and player kills already reach us through LootManager
+				if (event.getType() != LootRecordType.EVENT)
+				{
+					return;
+				}
+
+				Collection<ItemStack> items = event.getItems();
+				if (items == null || items.isEmpty())
+				{
+					return;
+				}
+
+				processLoot(event.getName(), items);
+			}
+
+			@Override
+			public Class<LootReceived> getEventType()
+			{
+				return LootReceived.class;
 			}
 		};
 	}
@@ -165,6 +207,12 @@ public class LootEventHandler
 		if (source != null && !source.isEmpty())
 		{
 			sourcesToCheck.add(source);
+			// A tile configured as "Tempoross" should still hit on "Reward pool (Tempoross)".
+			String bareName = extractParenthetical(source);
+			if (bareName != null)
+			{
+				sourcesToCheck.add(bareName);
+			}
 		}
 		if (interactionTrackingService != null)
 		{
@@ -179,6 +227,17 @@ public class LootEventHandler
 				sendBingoNotification(source, itemName, itemStack.getQuantity());
 			}
 		}
+	}
+
+	private static String extractParenthetical(String source)
+	{
+		Matcher matcher = TRAILING_PARENTHETICAL.matcher(source);
+		if (!matcher.find())
+		{
+			return null;
+		}
+		String inner = matcher.group(1).trim();
+		return inner.isEmpty() ? null : inner;
 	}
 
 	private boolean isBingoItemForLoot(String itemName, List<String> sourcesToCheck)

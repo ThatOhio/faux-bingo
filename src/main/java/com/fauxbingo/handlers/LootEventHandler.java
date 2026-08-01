@@ -1,10 +1,11 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
-import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropItem;
+import com.fauxbingo.services.data.DropSignal;
+import com.fauxbingo.services.data.SourceKind;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -14,7 +15,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.RequiredArgsConstructor;
@@ -30,8 +30,10 @@ import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.http.api.loottracker.LootRecordType;
 
 /**
- * Handles loot-related events from NPCs, players, and non-combat sources.
- * Calculates total loot value and triggers webhook notifications when threshold is met.
+ * Handles loot-related events from NPCs, players, and non-combat sources. Builds one DropSignal
+ * per detection and hands it to DropCorrelationService, which decides whether it gets merged
+ * with corroborating signals from other handlers (valuable drop chat, collection log, pet)
+ * before anything is sent to Discord or the future API.
  */
 @Slf4j
 @Singleton
@@ -55,7 +57,9 @@ public class LootEventHandler
 	}
 
 	/**
-	 * Kills seen through one NPC loot event and still waiting for the other.
+	 * Kills seen through one NPC loot event and still waiting for the other. This is the
+	 * same-method dedup layer (NpcLootReceived vs ServerNpcLoot for one real kill) and stays
+	 * separate from DropCorrelationService's cross-method merge.
 	 */
 	private final Deque<SeenKill> unpairedKills = new ArrayDeque<>();
 
@@ -73,23 +77,23 @@ public class LootEventHandler
 		}
 	}
 
-	private final FauxBingoConfig config;
 	private final ItemManager itemManager;
-	private final WebhookService webhookService;
-	private final LogService logService;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
+	private final DropCorrelationService dropCorrelationService;
 
 	@Subscribe
 	public void onNpcLootReceived(NpcLootReceived event)
 	{
-		processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN);
+		Integer npcId = event.getNpc() != null ? event.getNpc().getId() : null;
+		processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN, npcId);
 	}
 
 	@Subscribe
 	public void onPlayerLootReceived(PlayerLootReceived event)
 	{
-		processLoot(event.getPlayer().getName(), event.getItems());
+		processLoot(event.getPlayer().getName(), event.getItems(), SourceKind.PLAYER,
+			DetectionMethod.PLAYER_LOOT_RECEIVED, null);
 	}
 
 	/**
@@ -101,7 +105,8 @@ public class LootEventHandler
 	public void onServerNpcLoot(ServerNpcLoot event)
 	{
 		NPCComposition npc = event.getComposition();
-		processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER);
+		Integer npcId = npc != null ? npc.getId() : null;
+		processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER, npcId);
 	}
 
 	/**
@@ -109,7 +114,7 @@ public class LootEventHandler
 	 * off against it. Pairing consumes a single entry rather than suppressing everything with a
 	 * matching key, so back to back kills of the same NPC with identical loot still report once each.
 	 */
-	private void processNpcLoot(String source, Collection<ItemStack> items, NpcLootSignal signal)
+	private void processNpcLoot(String source, Collection<ItemStack> items, NpcLootSignal signal, Integer npcId)
 	{
 		if (items == null || items.isEmpty())
 		{
@@ -132,7 +137,10 @@ public class LootEventHandler
 		}
 
 		unpairedKills.add(new SeenKill(key, signal, now));
-		processLoot(source, items);
+		DetectionMethod method = signal == NpcLootSignal.TILE_SCAN
+			? DetectionMethod.NPC_LOOT_RECEIVED
+			: DetectionMethod.SERVER_NPC_LOOT;
+		processLoot(source, items, SourceKind.NPC, method, npcId);
 	}
 
 	private void dropStaleKills(long now)
@@ -175,13 +183,15 @@ public class LootEventHandler
 			return;
 		}
 
-		processLoot(event.getName(), items);
+		processLoot(event.getName(), items, SourceKind.OTHER, DetectionMethod.LOOT_TRACKER_EVENT, null);
 	}
 
-	private void processLoot(String source, Collection<ItemStack> items)
+	private void processLoot(String source, Collection<ItemStack> items, SourceKind sourceKind,
+		DetectionMethod method, Integer npcId)
 	{
 		long totalValue = 0;
 		Map<String, Integer> quantityByName = new LinkedHashMap<>();
+		List<DropItem> dropItems = new ArrayList<>(items.size());
 
 		for (ItemStack itemStack : items)
 		{
@@ -192,6 +202,13 @@ public class LootEventHandler
 
 			String itemName = itemManager.getItemComposition(itemId).getName();
 			quantityByName.merge(itemName, quantity, Integer::sum);
+
+			dropItems.add(DropItem.builder()
+				.id(itemId)
+				.name(itemName)
+				.quantity(quantity)
+				.unitPriceGe((long) price)
+				.build());
 		}
 
 		StringBuilder lootString = new StringBuilder();
@@ -204,69 +221,24 @@ public class LootEventHandler
 			lootString.append(entry.getValue()).append(" x ").append(entry.getKey());
 		}
 
-		if (totalValue >= config.minLootValue())
-		{
-			String message = String.format("Loot received from %s: %s (Total value: %,d gp)",
-				source, lootString.toString(), totalValue);
-			
-			String itemName = null;
-			if (items.size() == 1)
-			{
-				itemName = itemManager.getItemComposition(items.iterator().next().getId()).getName();
-			}
-			else if (!items.isEmpty())
-			{
-				// Find the most valuable item to use as a bundling key
-				long maxPrice = -1;
-				for (ItemStack item : items)
-				{
-					long price = (long) itemManager.getItemPrice(item.getId()) * item.getQuantity();
-					if (price > maxPrice)
-					{
-						maxPrice = price;
-						itemName = itemManager.getItemComposition(item.getId()).getName();
-					}
-				}
-			}
+		String message = String.format("Loot received from %s: %s (Total value: %,d gp)",
+			source, lootString.toString(), totalValue);
+		long finalTotalValue = totalValue;
 
-			takeScreenshotAndSend(message, itemName, WebhookService.WebhookCategory.LOOT);
-		}
-
-		// Always log to the external API if enabled
-		logLoot(source, items, totalValue);
-	}
-
-	private void logLoot(String source, Collection<ItemStack> items, long totalValue)
-	{
-		List<LootRecord.LootItem> lootItems = items.stream()
-			.map(item -> LootRecord.LootItem.builder()
-				.id(item.getId())
-				.name(itemManager.getItemComposition(item.getId()).getName())
-				.quantity(item.getQuantity())
-				.price(itemManager.getItemPrice(item.getId()))
-				.build())
-			.collect(Collectors.toList());
-
-		LootRecord lootRecord = LootRecord.builder()
-			.source(source)
-			.items(lootItems)
-			.totalValue(totalValue)
-			.build();
-
-		logService.log("LOOT", lootRecord);
-	}
-
-	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
-	{
+		// Captured immediately regardless of value, DropCorrelationService may still merge this
+		// into a group that crosses the notify threshold once a corroborating signal lands.
 		screenshotService.requestScreenshot(image -> executor.execute(() -> {
-			try
-			{
-				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, category);
-			}
-			catch (Exception e)
-			{
-				log.error("Error sending webhook with screenshot for {}", category, e);
-			}
+			DropSignal signal = DropSignal.builder()
+				.detectionMethod(method)
+				.sourceKind(sourceKind)
+				.sourceName(source)
+				.npcId(npcId)
+				.items(dropItems)
+				.totalValueGe(finalTotalValue)
+				.webhookMessage(message)
+				.screenshot(image)
+				.build();
+			dropCorrelationService.report(signal);
 		}));
 	}
 }

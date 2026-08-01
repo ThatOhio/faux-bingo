@@ -1,9 +1,7 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -22,7 +20,6 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -38,17 +35,13 @@ public class ServerNpcLootHandlerTest
 	private static final int BONES_ID = 526;
 
 	@Mock
-	private FauxBingoConfig config;
-	@Mock
 	private ItemManager itemManager;
-	@Mock
-	private WebhookService webhookService;
-	@Mock
-	private LogService logService;
 	@Mock
 	private ScreenshotService screenshotService;
 	@Mock
 	private ScheduledExecutorService executor;
+	@Mock
+	private DropCorrelationService dropCorrelationService;
 	@Mock
 	private NPC npc;
 	@Mock
@@ -59,11 +52,7 @@ public class ServerNpcLootHandlerTest
 	@Before
 	public void before()
 	{
-		lootEventHandler = new LootEventHandler(config, itemManager, webhookService,
-			logService, screenshotService, executor);
-
-		when(config.webhookUrl()).thenReturn("http://webhook");
-		when(config.minLootValue()).thenReturn(1_500_000);
+		lootEventHandler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService);
 
 		doAnswer(inv -> {
 			((Runnable) inv.getArgument(0)).run();
@@ -110,7 +99,7 @@ public class ServerNpcLootHandlerTest
 	{
 		lootEventHandler.onServerNpcLoot(serverLoot("Yama", shards()));
 
-		verify(logService).log(eq("LOOT"), any());
+		verify(dropCorrelationService).report(any());
 	}
 
 	@Test
@@ -118,7 +107,7 @@ public class ServerNpcLootHandlerTest
 	{
 		lootEventHandler.onServerNpcLoot(serverLoot("The Whisperer", shards()));
 
-		verify(logService).log(eq("LOOT"), any());
+		verify(dropCorrelationService).report(any());
 	}
 
 	/** Ordinary NPC: both events arrive for one kill and only one report comes out. */
@@ -128,7 +117,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onServerNpcLoot(serverLoot("Vorkath", shards()));
 		lootEventHandler.onNpcLootReceived(tileLoot("Vorkath", shards()));
 
-		verify(logService, times(1)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(1)).report(any());
 	}
 
 	/** Order should not matter, the tile scan can land first. */
@@ -138,7 +127,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onNpcLootReceived(tileLoot("Vorkath", shards()));
 		lootEventHandler.onServerNpcLoot(serverLoot("Vorkath", shards()));
 
-		verify(logService, times(1)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(1)).report(any());
 	}
 
 	/** Pairing consumes one entry, so identical repeat kills are not swallowed. */
@@ -152,7 +141,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onServerNpcLoot(serverLoot("Goblin", loot));
 		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
 
-		verify(logService, times(2)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(2)).report(any());
 	}
 
 	/** Interleaved, which is what a delayed tile scan looks like against a fast second kill. */
@@ -166,7 +155,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
 		lootEventHandler.onNpcLootReceived(tileLoot("Goblin", loot));
 
-		verify(logService, times(2)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(2)).report(any());
 	}
 
 	/** Two of the same event in a row are never each other's pair. */
@@ -176,7 +165,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onServerNpcLoot(serverLoot("Yama", shards()));
 		lootEventHandler.onServerNpcLoot(serverLoot("Yama", shards()));
 
-		verify(logService, times(2)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(2)).report(any());
 	}
 
 	/** Different loot from the same NPC is a different kill, not a pair. */
@@ -186,7 +175,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onServerNpcLoot(serverLoot("Vorkath", shards()));
 		lootEventHandler.onNpcLootReceived(tileLoot("Vorkath", Collections.singletonList(new ItemStack(BONES_ID, 1, null))));
 
-		verify(logService, times(2)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(2)).report(any());
 	}
 
 	/** Item ordering differs between the two events, the key must not care. */
@@ -199,7 +188,7 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onServerNpcLoot(serverLoot("Yama", Arrays.asList(shard, bone)));
 		lootEventHandler.onNpcLootReceived(tileLoot("Yama", Arrays.asList(bone, shard)));
 
-		verify(logService, times(1)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(1)).report(any());
 	}
 
 	@Test
@@ -208,6 +197,6 @@ public class ServerNpcLootHandlerTest
 		lootEventHandler.onServerNpcLoot(new ServerNpcLoot(null, shards()));
 		lootEventHandler.onServerNpcLoot(serverLoot("Yama", Collections.emptyList()));
 
-		verify(logService, times(1)).log(eq("LOOT"), any());
+		verify(dropCorrelationService, times(1)).report(any());
 	}
 }

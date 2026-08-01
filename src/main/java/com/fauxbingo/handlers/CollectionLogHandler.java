@@ -1,10 +1,11 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
-import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropItem;
+import com.fauxbingo.services.data.DropSignal;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -22,8 +23,10 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Handles collection log events.
- * Detects new collection log items through both chat messages and notification scripts.
+ * Handles collection log events. Detects new collection log items through both chat messages and
+ * notification scripts, and reports them to DropCorrelationService. This is also the only signal
+ * that ever learns a pet's real name (see PetChatHandler), and the only signal that can enrich a
+ * raid/NPC LOOT signal with achievement confirmation for the same item.
  */
 @Slf4j
 @Singleton
@@ -34,10 +37,9 @@ public class CollectionLogHandler
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final WebhookService webhookService;
-	private final LogService logService;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
+	private final DropCorrelationService dropCorrelationService;
 
 	private boolean notificationStarted = false;
 
@@ -59,7 +61,7 @@ public class CollectionLogHandler
 			client.getVarbitValue(Varbits.COLLECTION_LOG_NOTIFICATION) == 1)
 		{
 			String entry = Text.removeTags(chatMessage).substring(COLLECTION_LOG_TEXT.length());
-			sendCollectionLogNotification(entry);
+			reportCollectionLogEntry(entry, chatMessage, DetectionMethod.CHAT_COLLECTION_LOG);
 		}
 	}
 
@@ -86,48 +88,34 @@ public class CollectionLogHandler
 				if (notificationTopText.equalsIgnoreCase("Collection log"))
 				{
 					String entry = Text.removeTags(notificationBottomText).substring("New item:".length()).trim();
-					sendCollectionLogNotification(entry);
+					reportCollectionLogEntry(entry, notificationBottomText, DetectionMethod.NOTIFICATION_COLLECTION_LOG);
 				}
 				notificationStarted = false;
 				break;
 		}
 	}
 
-	private void sendCollectionLogNotification(String itemName)
+	private void reportCollectionLogEntry(String itemName, String rawText, DetectionMethod method)
 	{
 		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
-		String message = String.format("**%s** just received a new collection log item: **%s**!", 
+		String message = String.format("**%s** just received a new collection log item: **%s**!",
 			playerName, itemName);
 
-		takeScreenshotAndSend(message, itemName);
-
-		logCollectionLogItem(itemName);
-	}
-
-	private void logCollectionLogItem(String itemName)
-	{
-		LootRecord lootRecord = LootRecord.builder()
-			.source("Collection Log")
-			.items(Collections.singletonList(LootRecord.LootItem.builder()
-				.name(itemName)
-				.quantity(1)
-				.build()))
+		DropItem dropItem = DropItem.builder()
+			.name(itemName)
+			.quantity(1)
 			.build();
 
-		logService.log("COLLECTION_LOG", lootRecord);
-	}
-
-	private void takeScreenshotAndSend(String message, String itemName)
-	{
 		screenshotService.requestScreenshot(image -> executor.execute(() -> {
-			try
-			{
-				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, WebhookService.WebhookCategory.COLLECTION_LOG);
-			}
-			catch (Exception e)
-			{
-				log.error("Error sending webhook with screenshot for collection log", e);
-			}
+			DropSignal signal = DropSignal.builder()
+				.detectionMethod(method)
+				.raw(rawText)
+				.items(Collections.singletonList(dropItem))
+				.webhookMessage(message)
+				.alwaysNotify(true)
+				.screenshot(image)
+				.build();
+			dropCorrelationService.report(signal);
 		}));
 	}
 

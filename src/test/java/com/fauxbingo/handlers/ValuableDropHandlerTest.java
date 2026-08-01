@@ -1,9 +1,10 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropSignal;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -12,13 +13,11 @@ import net.runelite.api.events.ChatMessage;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -31,16 +30,13 @@ public class ValuableDropHandlerTest
 	private FauxBingoConfig config;
 
 	@Mock
-	private WebhookService webhookService;
-
-	@Mock
-	private LogService logService;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
 	private ScheduledExecutorService executor;
+
+	@Mock
+	private DropCorrelationService dropCorrelationService;
 
 	@Mock
 	private Player player;
@@ -50,26 +46,29 @@ public class ValuableDropHandlerTest
 	@Before
 	public void before()
 	{
-		valuableDropHandler = new ValuableDropHandler(client, config, webhookService, logService, screenshotService, executor);
+		valuableDropHandler = new ValuableDropHandler(client, config, screenshotService, executor, dropCorrelationService);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
-		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includeValuableDrops()).thenReturn(true);
-		when(config.minLootValue()).thenReturn(1000000);
 
-		// Run executor tasks inline
 		doAnswer(invocation -> {
 			Runnable r = invocation.getArgument(0);
 			r.run();
 			return null;
 		}).when(executor).execute(any());
 
-		// Immediately trigger webhook via screenshot callback
 		doAnswer(invocation -> {
 			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
 			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
 			return null;
 		}).when(screenshotService).requestScreenshot(any());
+	}
+
+	private DropSignal captureSignal()
+	{
+		ArgumentCaptor<DropSignal> captor = ArgumentCaptor.forClass(DropSignal.class);
+		verify(dropCorrelationService).report(captor.capture());
+		return captor.getValue();
 	}
 
 	@Test
@@ -81,8 +80,11 @@ public class ValuableDropHandlerTest
 
 		valuableDropHandler.onChatMessage(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), any(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
-		verify(logService).log(eq("VALUABLE_DROP"), any());
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertEquals(DetectionMethod.CHAT_VALUABLE_DROP, signal.getDetectionMethod());
+		org.junit.Assert.assertEquals("Dragon metal sheet", signal.getItems().get(0).getName());
+		org.junit.Assert.assertEquals(1_155_320L, signal.getTotalValueGe().longValue());
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Dragon metal sheet"));
 	}
 
 	@Test
@@ -94,11 +96,13 @@ public class ValuableDropHandlerTest
 
 		valuableDropHandler.onChatMessage(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Dragon metal sheet"), any(), eq("Dragon metal sheet"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Dragon metal sheet"));
 	}
 
+	/** No local value gating here anymore, that decision moved to DropCorrelationService. */
 	@Test
-	public void testBelowThreshold()
+	public void testBelowThresholdStillReported()
 	{
 		ChatMessage event = new ChatMessage();
 		event.setType(ChatMessageType.GAMEMESSAGE);
@@ -106,8 +110,7 @@ public class ValuableDropHandlerTest
 
 		valuableDropHandler.onChatMessage(event);
 
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
-		verify(logService).log(eq("VALUABLE_DROP"), any());
+		verify(dropCorrelationService).report(any());
 	}
 
 	@Test
@@ -120,7 +123,7 @@ public class ValuableDropHandlerTest
 
 		valuableDropHandler.onChatMessage(event);
 
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
+		verifyNoInteractions(dropCorrelationService);
 	}
 
 	@Test
@@ -142,12 +145,13 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: 30 x Chaos rune (1,680 coins)");
 
-		when(config.minLootValue()).thenReturn(1000);
-
 		valuableDropHandler.onChatMessage(event);
 
-		// The bundling key (cleaned) should be "Chaos rune"
-		verify(webhookService).sendWebhook(anyString(), contains("30 x Chaos rune"), any(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		DropSignal signal = captureSignal();
+		// The bundling key (cleaned) should be "Chaos rune", quantity parsed out of the chat text
+		org.junit.Assert.assertEquals("Chaos rune", signal.getItems().get(0).getName());
+		org.junit.Assert.assertEquals(30, signal.getItems().get(0).getQuantity());
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("30 x Chaos rune"));
 	}
 
 	@Test
@@ -157,11 +161,11 @@ public class ValuableDropHandlerTest
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("Valuable drop: 1,000 x Chaos rune (56,000 coins)");
 
-		when(config.minLootValue()).thenReturn(1000);
-
 		valuableDropHandler.onChatMessage(event);
 
-		// The bundling key (cleaned) should be "Chaos rune"
-		verify(webhookService).sendWebhook(anyString(), contains("1,000 x Chaos rune"), any(), eq("Chaos rune"), eq(WebhookService.WebhookCategory.VALUABLE_DROP));
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertEquals("Chaos rune", signal.getItems().get(0).getName());
+		org.junit.Assert.assertEquals(1000, signal.getItems().get(0).getQuantity());
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("1,000 x Chaos rune"));
 	}
 }

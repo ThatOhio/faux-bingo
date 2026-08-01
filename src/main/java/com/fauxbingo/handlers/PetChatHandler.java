@@ -1,12 +1,13 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
+import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
-import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropSignal;
 import com.google.common.collect.ImmutableList;
-import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -18,7 +19,9 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.client.eventbus.Subscribe;
 
 /**
- * Handles chat message events to detect pet drops.
+ * Handles chat message events to detect pet drops. The game never names the pet in this message,
+ * so the signal carries no item identity - DropCorrelationService learns the name later if a
+ * COLLECTION_LOG signal lands in the same correlation window (docs/bingo-events-api.md section 6.3).
  */
 @Slf4j
 @Singleton
@@ -33,10 +36,10 @@ public class PetChatHandler
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final WebhookService webhookService;
-	private final LogService logService;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
+	private final DropCorrelationService dropCorrelationService;
+	private final InteractionTrackingService interactionTrackingService;
 
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
@@ -56,46 +59,33 @@ public class PetChatHandler
 		// Check if message indicates a pet drop
 		if (PET_MESSAGES.stream().anyMatch(message::contains))
 		{
-			handlePetDrop();
+			handlePetDrop(message);
 		}
 	}
 
-	private void handlePetDrop()
+	private void handlePetDrop(String rawChatLine)
 	{
 		log.info("Pet drop detected");
 
 		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
 		String webhookMessage = String.format("**%s** just received a new pet!", playerName);
 
-		takeScreenshotAndSend(webhookMessage, "Pet");
+		// Best guess at what the pet came from; the plugin has no better signal than this.
+		List<String> recentInteractions = interactionTrackingService != null
+			? interactionTrackingService.getRecentInteractionNames()
+			: List.of();
+		String sourceNameGuess = recentInteractions.isEmpty() ? null : recentInteractions.get(0);
 
-		logPetDrop();
-	}
-
-	private void logPetDrop()
-	{
-		LootRecord lootRecord = LootRecord.builder()
-			.source("Pet")
-			.items(Collections.singletonList(LootRecord.LootItem.builder()
-				.name("Pet")
-				.quantity(1)
-				.build()))
-			.build();
-
-		logService.log("PET", lootRecord);
-	}
-
-	private void takeScreenshotAndSend(String message, String itemName)
-	{
 		screenshotService.requestScreenshot(image -> executor.execute(() -> {
-			try
-			{
-				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, WebhookService.WebhookCategory.PET);
-			}
-			catch (Exception e)
-			{
-				log.error("Error sending webhook with screenshot for pet drop", e);
-			}
+			DropSignal signal = DropSignal.builder()
+				.detectionMethod(DetectionMethod.CHAT_PET)
+				.raw(rawChatLine)
+				.sourceNameGuess(sourceNameGuess)
+				.webhookMessage(webhookMessage)
+				.alwaysNotify(true)
+				.screenshot(image)
+				.build();
+			dropCorrelationService.report(signal);
 		}));
 	}
 }

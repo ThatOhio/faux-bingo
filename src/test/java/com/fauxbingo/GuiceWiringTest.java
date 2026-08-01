@@ -8,8 +8,11 @@ import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.services.BingoConfigService;
+import com.fauxbingo.services.DropCorrelationService;
+import com.fauxbingo.services.EventEnvelopeSink;
 import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.LoggingEventEnvelopeSink;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.TeamIconService;
 import com.fauxbingo.services.WebhookService;
@@ -44,6 +47,7 @@ public class GuiceWiringTest
 		InteractionTrackingService.class,
 		LogService.class,
 		WebhookService.class,
+		DropCorrelationService.class,
 		ScreenshotService.class,
 		WiseOldManService.class,
 		TeamIconService.class,
@@ -71,6 +75,7 @@ public class GuiceWiringTest
 			binder.bind(ScheduledExecutorService.class).toInstance(mock(ScheduledExecutorService.class));
 			binder.bind(OkHttpClient.class).toInstance(new OkHttpClient());
 			binder.bind(Gson.class).toInstance(new Gson());
+			binder.bind(EventEnvelopeSink.class).to(LoggingEventEnvelopeSink.class);
 			binder.bind(String.class)
 				.annotatedWith(Names.named(FauxBingoPlugin.API_BASE_URL_KEY))
 				.toInstance("http://api");
@@ -93,6 +98,7 @@ public class GuiceWiringTest
 			binder.bind(ConfigManager.class).toInstance(mock(ConfigManager.class));
 			binder.bind(OkHttpClient.class).toInstance(new OkHttpClient());
 			binder.bind(Gson.class).toInstance(new Gson());
+			binder.bind(EventEnvelopeSink.class).to(LoggingEventEnvelopeSink.class);
 			binder.bind(String.class)
 				.annotatedWith(Names.named(FauxBingoPlugin.API_BASE_URL_KEY))
 				.toInstance("http://api");
@@ -100,5 +106,6 @@ public class GuiceWiringTest
 
 		assertSame(injector.getInstance(LogService.class), injector.getInstance(LogService.class));
 		assertSame(injector.getInstance(BingoConfigService.class), injector.getInstance(BingoConfigService.class));
+		assertSame(injector.getInstance(DropCorrelationService.class), injector.getInstance(DropCorrelationService.class));
 	}
 }

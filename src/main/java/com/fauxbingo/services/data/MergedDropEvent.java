@@ -1,0 +1,27 @@
+package com.fauxbingo.services.data;
+
+import java.awt.image.BufferedImage;
+import java.util.List;
+import lombok.Builder;
+import lombok.Data;
+
+/**
+ * The single resolved event for one physical drop, folded together from every DropSignal that
+ * matched within DropCorrelationService's correlation window. This is what a future v1 API
+ * client sends; for now it is only handed to EventEnvelopeSink, nothing transports it yet.
+ */
+@Data
+@Builder
+public class MergedDropEvent
+{
+	private DropType type;
+	private DropSignal primarySignal;
+	private List<DropSignal> contributingSignals;
+	/** Only set when a PET signal was corroborated by a COLLECTION_LOG signal in the same group. */
+	private String petName;
+	private String sourceNameGuess;
+	/** Chat-reported total, used only when the primary signal's own priced total was missing/zero. */
+	private Long corroboratedValueGe;
+	private String finalMessage;
+	private BufferedImage screenshot;
+}

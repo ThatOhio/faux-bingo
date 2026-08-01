@@ -1,10 +1,12 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
-import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropItem;
+import com.fauxbingo.services.data.DropSignal;
+import com.fauxbingo.services.data.SourceKind;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -29,7 +31,10 @@ import net.runelite.client.util.Text;
 
 /**
  * Handles raid loot notifications for Chambers of Xeric and Theatre of Blood.
- * Tracks raid completions and unique drops from both raids.
+ * Tracks raid completions and unique drops from both raids, and assembles them into one
+ * DropSignal per chest - the chat rare/KC assembly happens here because its own timing (chat
+ * line to chest open can be many seconds) doesn't fit DropCorrelationService's shorter
+ * cross-handler window.
  */
 @Slf4j
 @Singleton
@@ -65,11 +70,10 @@ public class RaidLootHandler
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final WebhookService webhookService;
-	private final LogService logService;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final ItemManager itemManager;
+	private final DropCorrelationService dropCorrelationService;
 
 	private RaidType raidType;
 	private Integer raidKc;
@@ -291,7 +295,7 @@ public class RaidLootHandler
 	private void processRaidLoot(String raidName, ItemContainer itemContainer)
 	{
 		long totalValue = 0;
-		List<LootRecord.LootItem> allItems = new ArrayList<>();
+		List<DropItem> allItems = new ArrayList<>();
 
 		for (Item item : itemContainer.getItems())
 		{
@@ -303,38 +307,26 @@ public class RaidLootHandler
 				int price = itemManager.getItemPrice(itemId);
 				totalValue += (long) price * quantity;
 
-				allItems.add(LootRecord.LootItem.builder()
+				allItems.add(DropItem.builder()
 					.id(itemId)
 					.name(itemName)
 					.quantity(quantity)
-					.price(price)
+					.unitPriceGe((long) price)
 					.build());
 			}
 		}
 
 		boolean hasRareDrop = !rareDrops.isEmpty();
-		boolean isValuable = totalValue >= config.minLootValue();
-
-		if (hasRareDrop || isValuable)
-		{
-			sendConsolidatedRaidNotification(raidName, allItems, totalValue);
-		}
-		else
-		{
-			logGeneralLoot(allItems, totalValue, raidName, raidKc);
-		}
+		reportRaidLoot(raidName, allItems, totalValue, hasRareDrop);
 	}
 
-	private void sendConsolidatedRaidNotification(String raidName, List<LootRecord.LootItem> allItems, long totalValue)
+	private void reportRaidLoot(String raidName, List<DropItem> allItems, long totalValue, boolean hasRareDrop)
 	{
 		String playerName = getLocalPlayerName();
 		StringBuilder message = new StringBuilder();
 
-		String bundlingItem = null;
-
-		if (!rareDrops.isEmpty())
+		if (hasRareDrop)
 		{
-			bundlingItem = rareDrops.get(0);
 			message.append(String.format("**%s** just received a rare drop from %s: **%s**!\n",
 				playerName, raidName, String.join(", ", rareDrops)));
 		}
@@ -343,9 +335,8 @@ public class RaidLootHandler
 			message.append(String.format("**%s** just received loot from %s:\n", playerName, raidName));
 		}
 
-		// Add all loot details
 		StringBuilder lootList = new StringBuilder();
-		for (LootRecord.LootItem item : allItems)
+		for (DropItem item : allItems)
 		{
 			if (lootList.length() > 0) lootList.append(", ");
 			lootList.append(item.getQuantity()).append(" x ").append(item.getName());
@@ -357,9 +348,22 @@ public class RaidLootHandler
 			message.append(String.format("\nKill Count: **%d**", raidKc));
 		}
 
-		takeScreenshotAndSend(message.toString(), bundlingItem, WebhookService.WebhookCategory.RAID_LOOT);
-
-		logGeneralLoot(allItems, totalValue, raidName, raidKc);
+		Integer kc = raidKc;
+		String finalMessage = message.toString();
+		screenshotService.requestScreenshot(image -> executor.execute(() -> {
+			DropSignal signal = DropSignal.builder()
+				.detectionMethod(DetectionMethod.RAID_CHEST_CONTAINER)
+				.sourceKind(SourceKind.RAID)
+				.sourceName(raidName)
+				.killCount(kc)
+				.items(allItems)
+				.totalValueGe(totalValue)
+				.webhookMessage(finalMessage)
+				.alwaysNotify(hasRareDrop)
+				.screenshot(image)
+				.build();
+			dropCorrelationService.report(signal);
+		}));
 	}
 
 	private String getRaidName(int id)
@@ -397,32 +401,6 @@ public class RaidLootHandler
 			return "Tombs of Amascut";
 		}
 		return null;
-	}
-
-	private void logGeneralLoot(List<LootRecord.LootItem> items, long totalValue, String raidName, Integer kc)
-	{
-		LootRecord lootRecord = LootRecord.builder()
-			.source(raidName)
-			.items(items)
-			.totalValue(totalValue)
-			.kc(kc)
-			.build();
-
-		logService.log("RAID_LOOT", lootRecord);
-	}
-
-	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
-	{
-		screenshotService.requestScreenshot(image -> executor.execute(() -> {
-			try
-			{
-				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, category);
-			}
-			catch (Exception e)
-			{
-				log.error("Error sending webhook with screenshot for raid loot", e);
-			}
-		}));
 	}
 
 	public void resetState()

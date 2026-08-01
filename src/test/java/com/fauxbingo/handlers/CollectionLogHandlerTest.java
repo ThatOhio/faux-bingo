@@ -1,9 +1,10 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropSignal;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -16,14 +17,11 @@ import net.runelite.api.events.ScriptPreFired;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -36,16 +34,13 @@ public class CollectionLogHandlerTest
 	private FauxBingoConfig config;
 
 	@Mock
-	private WebhookService webhookService;
-
-	@Mock
-	private LogService logService;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
 	private ScheduledExecutorService executor;
+
+	@Mock
+	private DropCorrelationService dropCorrelationService;
 
 	@Mock
 	private Player player;
@@ -55,25 +50,29 @@ public class CollectionLogHandlerTest
 	@Before
 	public void before()
 	{
-		collectionLogHandler = new CollectionLogHandler(client, config, webhookService, logService, screenshotService, executor);
+		collectionLogHandler = new CollectionLogHandler(client, config, screenshotService, executor, dropCorrelationService);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
-		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includeCollectionLog()).thenReturn(true);
 
-		// Run executor tasks inline
 		doAnswer(invocation -> {
 			Runnable r = invocation.getArgument(0);
 			r.run();
 			return null;
 		}).when(executor).execute(any());
 
-		// Immediately trigger webhook via screenshot callback
 		doAnswer(invocation -> {
 			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
 			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
 			return null;
 		}).when(screenshotService).requestScreenshot(any());
+	}
+
+	private DropSignal captureSignal()
+	{
+		ArgumentCaptor<DropSignal> captor = ArgumentCaptor.forClass(DropSignal.class);
+		verify(dropCorrelationService).report(captor.capture());
+		return captor.getValue();
 	}
 
 	@Test
@@ -86,8 +85,11 @@ public class CollectionLogHandlerTest
 
 		collectionLogHandler.onChatMessage(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), any(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
-		verify(logService).log(eq("COLLECTION_LOG"), any());
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertEquals(DetectionMethod.CHAT_COLLECTION_LOG, signal.getDetectionMethod());
+		org.junit.Assert.assertEquals("Abyssal whip", signal.getItems().get(0).getName());
+		org.junit.Assert.assertTrue(signal.isAlwaysNotify());
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Abyssal whip"));
 	}
 
 	@Test
@@ -100,7 +102,7 @@ public class CollectionLogHandlerTest
 
 		collectionLogHandler.onChatMessage(event);
 
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
+		verifyNoInteractions(dropCorrelationService);
 	}
 
 	@Test
@@ -116,7 +118,9 @@ public class CollectionLogHandlerTest
 		ScriptPreFired delayEvent = new ScriptPreFired(ScriptID.NOTIFICATION_DELAY);
 		collectionLogHandler.onScriptPreFired(delayEvent);
 
-		verify(webhookService).sendWebhook(anyString(), contains("Abyssal whip"), any(), eq("Abyssal whip"), eq(WebhookService.WebhookCategory.COLLECTION_LOG));
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertEquals(DetectionMethod.NOTIFICATION_COLLECTION_LOG, signal.getDetectionMethod());
+		org.junit.Assert.assertEquals("Abyssal whip", signal.getItems().get(0).getName());
 	}
 
 	@Test
@@ -132,6 +136,6 @@ public class CollectionLogHandlerTest
 		ScriptPreFired delayEvent = new ScriptPreFired(ScriptID.NOTIFICATION_DELAY);
 		collectionLogHandler.onScriptPreFired(delayEvent);
 
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
+		verifyNoInteractions(dropCorrelationService);
 	}
 }

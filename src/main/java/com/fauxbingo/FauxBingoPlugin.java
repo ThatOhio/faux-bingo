@@ -9,8 +9,11 @@ import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.overlay.TeamOverlay;
 import com.fauxbingo.services.BingoConfigService;
+import com.fauxbingo.services.DropCorrelationService;
+import com.fauxbingo.services.EventEnvelopeSink;
 import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.LoggingEventEnvelopeSink;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.TeamIconService;
@@ -81,6 +84,9 @@ public class FauxBingoPlugin extends Plugin
 	private LogService logService;
 
 	@Inject
+	private DropCorrelationService dropCorrelationService;
+
+	@Inject
 	private LootEventHandler lootEventHandler;
 
 	@Inject
@@ -117,6 +123,7 @@ public class FauxBingoPlugin extends Plugin
 		bingoConfigService.start();
 		teamIconService.start();
 		logService.start();
+		dropCorrelationService.start();
 
 		for (Object subscriber : eventSubscribers())
 		{
@@ -148,6 +155,7 @@ public class FauxBingoPlugin extends Plugin
 		bingoConfigService.shutdown();
 		teamIconService.shutdown();
 		logService.shutdown();
+		dropCorrelationService.shutdown();
 		xpTracker.reset();
 
 		resetState();
@@ -293,5 +301,12 @@ public class FauxBingoPlugin extends Plugin
 	String provideApiBaseUrl()
 	{
 		return BINGO_API_BASE_URL;
+	}
+
+	/** Swap this to a real v1 API client once one exists; DropCorrelationService doesn't change. */
+	@Provides
+	EventEnvelopeSink provideEventEnvelopeSink(LoggingEventEnvelopeSink sink)
+	{
+		return sink;
 	}
 }

@@ -1,9 +1,9 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropSignal;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ItemComposition;
@@ -14,13 +14,11 @@ import net.runelite.http.api.loottracker.LootRecordType;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -35,28 +33,20 @@ public class EventLootHandlerTest
 	private static final String TEMPOROSS_EVENT = "Reward pool (Tempoross)";
 
 	@Mock
-	private FauxBingoConfig config;
-	@Mock
 	private ItemManager itemManager;
-	@Mock
-	private WebhookService webhookService;
-	@Mock
-	private LogService logService;
 	@Mock
 	private ScreenshotService screenshotService;
 	@Mock
 	private ScheduledExecutorService executor;
+	@Mock
+	private DropCorrelationService dropCorrelationService;
 
 	private LootEventHandler handler;
 
 	@Before
 	public void before()
 	{
-		handler = new LootEventHandler(config, itemManager, webhookService,
-			logService, screenshotService, executor);
-
-		when(config.webhookUrl()).thenReturn("http://webhook");
-		when(config.minLootValue()).thenReturn(1_000_000);
+		handler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService);
 
 		doAnswer(inv -> {
 			((Runnable) inv.getArgument(0)).run();
@@ -82,11 +72,15 @@ public class EventLootHandlerTest
 	}
 
 	@Test
-	public void temporossLootIsLoggedToTheApi()
+	public void temporossLootIsReported()
 	{
 		handler.onLootReceived(temporossLoot(1));
 
-		verify(logService).log(eq("LOOT"), any());
+		ArgumentCaptor<DropSignal> captor = ArgumentCaptor.forClass(DropSignal.class);
+		verify(dropCorrelationService).report(captor.capture());
+		DropSignal signal = captor.getValue();
+		org.junit.Assert.assertEquals(DetectionMethod.LOOT_TRACKER_EVENT, signal.getDetectionMethod());
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains(TEMPOROSS_EVENT));
 	}
 
 	/** NPC and player kills reach us via LootManager, taking them here too would double post. */
@@ -98,8 +92,7 @@ public class EventLootHandlerTest
 		handler.onLootReceived(new LootReceived("Zezima", 126, LootRecordType.PLAYER,
 			Collections.singletonList(new ItemStack(SOAKED_PAGE_ID, 1, null)), 1, null));
 
-		verifyNoInteractions(logService);
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), anyString(), any());
+		verifyNoInteractions(dropCorrelationService);
 	}
 
 	/** Pickpocketing fires once per steal. Far too noisy to push at the API. */
@@ -109,7 +102,7 @@ public class EventLootHandlerTest
 		handler.onLootReceived(new LootReceived("Master Farmer", 70, LootRecordType.PICKPOCKET,
 			Collections.singletonList(new ItemStack(SOAKED_PAGE_ID, 1, null)), 1, null));
 
-		verifyNoInteractions(logService);
+		verifyNoInteractions(dropCorrelationService);
 	}
 
 	@Test
@@ -118,19 +111,6 @@ public class EventLootHandlerTest
 		handler.onLootReceived(new LootReceived(TEMPOROSS_EVENT, -1, LootRecordType.EVENT, Collections.emptyList(), 1, null));
 		handler.onLootReceived(new LootReceived(TEMPOROSS_EVENT, -1, LootRecordType.EVENT, null, 1, null));
 
-		verifyNoInteractions(logService);
-		verifyNoInteractions(webhookService);
-	}
-
-	/** Value gate still applies to the generic path. */
-	@Test
-	public void valuableEventLootStillPostsOnValueAlone()
-	{
-		when(config.minLootValue()).thenReturn(1000);
-
-		handler.onLootReceived(temporossLoot(1));
-
-		verify(webhookService).sendWebhook(anyString(), contains(TEMPOROSS_EVENT), any(),
-			eq("Soaked page"), eq(WebhookService.WebhookCategory.LOOT));
+		verifyNoInteractions(dropCorrelationService);
 	}
 }

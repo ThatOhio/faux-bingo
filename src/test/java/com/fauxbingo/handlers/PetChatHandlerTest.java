@@ -1,9 +1,13 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
+import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropSignal;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -12,14 +16,11 @@ import net.runelite.api.events.ChatMessage;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -32,16 +33,16 @@ public class PetChatHandlerTest
 	private FauxBingoConfig config;
 
 	@Mock
-	private WebhookService webhookService;
-
-	@Mock
-	private LogService logService;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
 	private ScheduledExecutorService executor;
+
+	@Mock
+	private DropCorrelationService dropCorrelationService;
+
+	@Mock
+	private InteractionTrackingService interactionTrackingService;
 
 	@Mock
 	private Player player;
@@ -51,25 +52,30 @@ public class PetChatHandlerTest
 	@Before
 	public void before()
 	{
-		petChatHandler = new PetChatHandler(client, config, webhookService, logService, screenshotService, executor);
+		petChatHandler = new PetChatHandler(client, config, screenshotService, executor, dropCorrelationService, interactionTrackingService);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
-		when(config.webhookUrl()).thenReturn("http://webhook");
 		when(config.includePets()).thenReturn(true);
+		when(interactionTrackingService.getRecentInteractionNames()).thenReturn(Collections.emptyList());
 
-		// Run executor tasks inline
 		doAnswer(invocation -> {
 			Runnable r = invocation.getArgument(0);
 			r.run();
 			return null;
 		}).when(executor).execute(any());
 
-		// Immediately trigger webhook via screenshot callback
 		doAnswer(invocation -> {
 			java.util.function.Consumer<java.awt.image.BufferedImage> cb = invocation.getArgument(0);
 			cb.accept(new java.awt.image.BufferedImage(1,1,java.awt.image.BufferedImage.TYPE_INT_RGB));
 			return null;
 		}).when(screenshotService).requestScreenshot(any());
+	}
+
+	private DropSignal captureSignal()
+	{
+		ArgumentCaptor<DropSignal> captor = ArgumentCaptor.forClass(DropSignal.class);
+		verify(dropCorrelationService).report(captor.capture());
+		return captor.getValue();
 	}
 
 	@Test
@@ -81,8 +87,10 @@ public class PetChatHandlerTest
 
 		petChatHandler.onChatMessage(event);
 
-		verify(webhookService).sendWebhook(anyString(), contains("TestPlayer"), any(), eq("Pet"), eq(WebhookService.WebhookCategory.PET));
-		verify(logService).log(eq("PET"), any());
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertEquals(DetectionMethod.CHAT_PET, signal.getDetectionMethod());
+		org.junit.Assert.assertTrue(signal.isAlwaysNotify());
+		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("TestPlayer"));
 	}
 
 	@Test
@@ -94,7 +102,7 @@ public class PetChatHandlerTest
 
 		petChatHandler.onChatMessage(event);
 
-		verify(webhookService).sendWebhook(anyString(), anyString(), any(), any(), eq(WebhookService.WebhookCategory.PET));
+		verify(dropCorrelationService).report(any());
 	}
 
 	@Test
@@ -106,7 +114,7 @@ public class PetChatHandlerTest
 
 		petChatHandler.onChatMessage(event);
 
-		verify(webhookService).sendWebhook(anyString(), anyString(), any(), any(), eq(WebhookService.WebhookCategory.PET));
+		verify(dropCorrelationService).report(any());
 	}
 
 	@Test
@@ -118,7 +126,7 @@ public class PetChatHandlerTest
 
 		petChatHandler.onChatMessage(event);
 
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), any(), any());
+		verifyNoInteractions(dropCorrelationService);
 	}
 
 	@Test
@@ -131,6 +139,20 @@ public class PetChatHandlerTest
 
 		petChatHandler.onChatMessage(event);
 
-		verify(webhookService, never()).sendWebhook(anyString(), anyString(), any(), any(), any());
+		verifyNoInteractions(dropCorrelationService);
+	}
+
+	@Test
+	public void testSourceNameGuessComesFromInteractionTracking()
+	{
+		when(interactionTrackingService.getRecentInteractionNames()).thenReturn(List.of("Vorkath"));
+		ChatMessage event = new ChatMessage();
+		event.setType(ChatMessageType.GAMEMESSAGE);
+		event.setMessage("You have a funny feeling like you're being followed.");
+
+		petChatHandler.onChatMessage(event);
+
+		DropSignal signal = captureSignal();
+		org.junit.Assert.assertEquals("Vorkath", signal.getSourceNameGuess());
 	}
 }

@@ -1,10 +1,12 @@
 package com.fauxbingo.handlers;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.LogService;
+import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
-import com.fauxbingo.services.data.LootRecord;
+import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropItem;
+import com.fauxbingo.services.data.DropSignal;
+import com.fauxbingo.services.data.SourceKind;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.regex.Matcher;
@@ -19,8 +21,9 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.client.eventbus.Subscribe;
 
 /**
- * Handles valuable drop notifications from chat messages.
- * Detects when the game announces a valuable drop. Logs all; webhook only when >= minLootValue.
+ * Handles valuable drop notifications from chat messages. Detects when the game announces a
+ * valuable drop and reports it to DropCorrelationService, which decides whether it stands alone
+ * or corroborates a LOOT signal from LootEventHandler/RaidLootHandler for the same item.
  */
 @Slf4j
 @Singleton
@@ -36,10 +39,9 @@ public class ValuableDropHandler
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final WebhookService webhookService;
-	private final LogService logService;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
+	private final DropCorrelationService dropCorrelationService;
 
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
@@ -60,26 +62,39 @@ public class ValuableDropHandler
 		if (matcher.matches())
 		{
 			long valuableDropValue = Long.parseLong(matcher.group(2).replaceAll(",", ""));
-			String valuableDropName = matcher.group(1).split(" \\(")[0];
+			String valuableDropNameWithQuantity = matcher.group(1).split(" \\(")[0];
 			String valuableDropValueString = matcher.group(2);
-
-			logValuableDrop(valuableDropName, valuableDropValue);
-			if (valuableDropValue >= config.minLootValue())
-			{
-				sendValuableDropNotification(valuableDropName, valuableDropValueString);
-			}
+			reportValuableDrop(chatMessage, valuableDropNameWithQuantity, valuableDropValueString, valuableDropValue);
 		}
 	}
 
-	private void sendValuableDropNotification(String itemName, String itemValue)
+	private void reportValuableDrop(String rawChatLine, String itemNameWithQuantity, String valueString, long value)
 	{
 		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
-		String message = String.format("**%s** just received a valuable drop: **%s**!\nApprox Value: **%s coins**", 
-			playerName, itemName, itemValue);
+		String itemName = cleanItemName(itemNameWithQuantity);
+		int quantity = parseQuantity(itemNameWithQuantity);
 
-		String bundlingKey = cleanItemName(itemName);
+		String message = String.format("**%s** just received a valuable drop: **%s**!\nApprox Value: **%s coins**",
+			playerName, itemNameWithQuantity, valueString);
 
-		takeScreenshotAndSend(message, bundlingKey, WebhookService.WebhookCategory.VALUABLE_DROP);
+		DropItem dropItem = DropItem.builder()
+			.name(itemName)
+			.quantity(quantity)
+			.unitPriceGe(quantity > 0 ? value / quantity : value)
+			.build();
+
+		screenshotService.requestScreenshot(image -> executor.execute(() -> {
+			DropSignal signal = DropSignal.builder()
+				.detectionMethod(DetectionMethod.CHAT_VALUABLE_DROP)
+				.raw(rawChatLine)
+				.sourceKind(SourceKind.OTHER)
+				.items(Collections.singletonList(dropItem))
+				.totalValueGe(value)
+				.webhookMessage(message)
+				.screenshot(image)
+				.build();
+			dropCorrelationService.report(signal);
+		}));
 	}
 
 	private String cleanItemName(String itemName)
@@ -108,36 +123,5 @@ public class ValuableDropHandler
 		{
 			return 1;
 		}
-	}
-
-	private void logValuableDrop(String itemNameWithQuantity, long value)
-	{
-		int quantity = parseQuantity(itemNameWithQuantity);
-
-		LootRecord lootRecord = LootRecord.builder()
-			.source("Valuable Drop")
-			.items(Collections.singletonList(LootRecord.LootItem.builder()
-				.name(cleanItemName(itemNameWithQuantity))
-				.quantity(quantity)
-				.price((int) (value / quantity)) // might overflow if > 2B, but item prices are usually ints
-				.build()))
-			.totalValue(value)
-			.build();
-
-		logService.log("VALUABLE_DROP", lootRecord);
-	}
-
-	private void takeScreenshotAndSend(String message, String itemName, WebhookService.WebhookCategory category)
-	{
-		screenshotService.requestScreenshot(image -> executor.execute(() -> {
-			try
-			{
-				webhookService.sendWebhook(config.webhookUrl(), message, image, itemName, category);
-			}
-			catch (Exception e)
-			{
-				log.error("Error sending webhook with screenshot for {}", category, e);
-			}
-		}));
 	}
 }

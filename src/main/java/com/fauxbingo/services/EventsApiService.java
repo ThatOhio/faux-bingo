@@ -10,8 +10,6 @@ import com.fauxbingo.services.data.DetectionDto;
 import com.fauxbingo.services.data.DropItem;
 import com.fauxbingo.services.data.DropSignal;
 import com.fauxbingo.services.data.EventEnvelopeDto;
-import com.fauxbingo.services.data.EventResultDto;
-import com.fauxbingo.services.data.EventsResponseDto;
 import com.fauxbingo.services.data.LocationDto;
 import com.fauxbingo.services.data.LootItemDto;
 import com.fauxbingo.services.data.LootPayloadDto;
@@ -26,11 +24,8 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -62,6 +57,12 @@ import okhttp3.Response;
  * a batch of one; DeathHandler calls submitDeath directly, batched on a 5s/50-event timer per
  * the contract. Delivery is in-memory only - a failed batch retries with backoff, but nothing
  * survives a plugin restart or logout.
+ *
+ * The events endpoint is fire and forget: it answers 2xx (published) or 5xx (retry this batch)
+ * and never carries a per-event verdict, so there's nothing to wait on before uploading evidence.
+ * eventId is generated here, client-side, before the envelope is even built, so a captured
+ * screenshot uploads immediately in parallel with the batch send rather than waiting on its
+ * response.
  */
 @Slf4j
 @Singleton
@@ -75,7 +76,6 @@ public class EventsApiService implements EventEnvelopeSink
 	private static final long MAX_RETRY_DELAY_MS = 60_000;
 	private static final long DEATH_BATCH_FLUSH_MS = 5_000;
 	private static final int DEATH_BATCH_MAX_SIZE = 50;
-	private static final long SCREENSHOT_TTL_MS = 60_000;
 
 	private final Client client;
 	private final ClientThread clientThread;
@@ -88,10 +88,8 @@ public class EventsApiService implements EventEnvelopeSink
 	private final AtomicInteger sequence = new AtomicInteger(0);
 	private final List<EventEnvelopeDto> deathQueue = new ArrayList<>();
 	private volatile long deathQueueOpenedAtMs = 0;
-	private final Map<String, CachedScreenshot> pendingScreenshots = new ConcurrentHashMap<>();
 
 	private ScheduledFuture<?> deathFlushTask = null;
-	private ScheduledFuture<?> screenshotSweepTask = null;
 
 	@Inject
 	public EventsApiService(Client client, ClientThread clientThread, FauxBingoConfig config,
@@ -113,10 +111,6 @@ public class EventsApiService implements EventEnvelopeSink
 		{
 			deathFlushTask = executor.scheduleAtFixedRate(this::flushDeathQueueIfDue, 1, 1, TimeUnit.SECONDS);
 		}
-		if (screenshotSweepTask == null || screenshotSweepTask.isCancelled())
-		{
-			screenshotSweepTask = executor.scheduleAtFixedRate(this::sweepStaleScreenshots, 30, 30, TimeUnit.SECONDS);
-		}
 	}
 
 	public void shutdown()
@@ -126,13 +120,7 @@ public class EventsApiService implements EventEnvelopeSink
 			deathFlushTask.cancel(false);
 			deathFlushTask = null;
 		}
-		if (screenshotSweepTask != null)
-		{
-			screenshotSweepTask.cancel(false);
-			screenshotSweepTask = null;
-		}
 		flushDeathQueueNow();
-		pendingScreenshots.clear();
 	}
 
 	/** New login/username change: sequence starts back at 0 for the new session. */
@@ -185,11 +173,13 @@ public class EventsApiService implements EventEnvelopeSink
 
 		if (merged.getScreenshot() != null)
 		{
-			pendingScreenshots.put(eventId, new CachedScreenshot(merged.getScreenshot(), System.currentTimeMillis()));
+			// No verdict to wait on and eventId is already ours, so this races ahead of (and
+			// independent of) the batch send below. The mediator tolerates that (docs/bingo-events-api.md §11).
+			uploadScreenshot(eventId, merged.getScreenshot());
 		}
 
 		// LOOT/COLLECTION_LOG/PET post immediately, typically a batch of one, per the contract's
-		// "Immediate" delivery path (the plugin needs the verdict to decide on a webhook).
+		// "Immediate" delivery path.
 		sendBatch(Collections.singletonList(envelope), INITIAL_RETRY_DELAY_MS);
 	}
 
@@ -410,8 +400,7 @@ public class EventsApiService implements EventEnvelopeSink
 						return;
 					}
 
-					String body = response.body() != null ? response.body().string() : "";
-					handleEventsResponse(body);
+					// 2xx (204, no body) means the topic took the batch. Nothing else to read.
 				}
 				finally
 				{
@@ -426,44 +415,9 @@ public class EventsApiService implements EventEnvelopeSink
 		executor.schedule(() -> sendBatch(envelopes, Math.min(MAX_RETRY_DELAY_MS, delayMs * 2)), delayMs, TimeUnit.MILLISECONDS);
 	}
 
-	private void handleEventsResponse(String body)
+	private void uploadScreenshot(String eventId, BufferedImage image)
 	{
-		EventsResponseDto parsed = gson.fromJson(body, EventsResponseDto.class);
-		if (parsed == null || parsed.getResults() == null)
-		{
-			return;
-		}
-
-		for (EventResultDto result : parsed.getResults())
-		{
-			if ("rejected".equals(result.getStatus()))
-			{
-				log.debug("Event {} rejected: {} ({})", result.getEventId(), result.getCode(), result.getReason());
-			}
-
-			if (result.getBingo() != null && result.getBingo().isRequestScreenshot())
-			{
-				uploadScreenshot(result.getEventId());
-			}
-			else
-			{
-				// Verdict didn't ask for it (or there's no verdict yet, since the evaluator is
-				// currently a stub) - don't hold the image longer than needed.
-				pendingScreenshots.remove(result.getEventId());
-			}
-		}
-	}
-
-	private void uploadScreenshot(String eventId)
-	{
-		CachedScreenshot cached = pendingScreenshots.remove(eventId);
-		if (cached == null)
-		{
-			log.debug("requestScreenshot for {} but no screenshot was held (expired or never captured)", eventId);
-			return;
-		}
-
-		byte[] bytes = toPngBytes(cached.image);
+		byte[] bytes = toPngBytes(image);
 		if (bytes == null)
 		{
 			return;
@@ -523,33 +477,8 @@ public class EventsApiService implements EventEnvelopeSink
 		}
 	}
 
-	private void sweepStaleScreenshots()
-	{
-		long cutoff = System.currentTimeMillis() - SCREENSHOT_TTL_MS;
-		Iterator<Map.Entry<String, CachedScreenshot>> it = pendingScreenshots.entrySet().iterator();
-		while (it.hasNext())
-		{
-			if (it.next().getValue().capturedAtMs < cutoff)
-			{
-				it.remove();
-			}
-		}
-	}
-
 	private boolean enabled()
 	{
 		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.isEmpty();
-	}
-
-	private static final class CachedScreenshot
-	{
-		private final BufferedImage image;
-		private final long capturedAtMs;
-
-		private CachedScreenshot(BufferedImage image, long capturedAtMs)
-		{
-			this.image = image;
-			this.capturedAtMs = capturedAtMs;
-		}
 	}
 }

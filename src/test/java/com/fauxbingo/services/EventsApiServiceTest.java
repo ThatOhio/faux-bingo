@@ -1,14 +1,11 @@
 package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.services.data.BingoVerdictDto;
 import com.fauxbingo.services.data.DeathSignal;
 import com.fauxbingo.services.data.DetectionMethod;
 import com.fauxbingo.services.data.DropItem;
 import com.fauxbingo.services.data.DropSignal;
 import com.fauxbingo.services.data.DropType;
-import com.fauxbingo.services.data.EventResultDto;
-import com.fauxbingo.services.data.EventsResponseDto;
 import com.fauxbingo.services.data.MergedDropEvent;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -213,36 +210,34 @@ public class EventsApiServiceTest
 		verify(okHttpClient, times(2)).newCall(any());
 	}
 
+	/**
+	 * The events endpoint never returns a verdict (204/500 only, docs/bingo-events-api.md §8), and
+	 * eventId is generated client-side before either request is built, so a captured screenshot
+	 * uploads immediately alongside accept() rather than waiting on the events-POST callback.
+	 */
 	@Test
-	public void requestScreenshotVerdictTriggersUpload() throws Exception
+	public void acceptUploadsScreenshotImmediatelyWithoutWaitingOnEventsResponse()
 	{
-		Call eventsCall = mock(Call.class);
-		Call screenshotCall = mock(Call.class);
-		when(okHttpClient.newCall(any(Request.class))).thenReturn(eventsCall, screenshotCall);
+		Call firstCall = mock(Call.class);
+		Call secondCall = mock(Call.class);
+		when(okHttpClient.newCall(any(Request.class))).thenReturn(firstCall, secondCall);
 
 		MergedDropEvent merged = lootEvent();
 		merged.setScreenshot(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB));
 		service.accept(merged);
 
-		ArgumentCaptor<Request> firstReq = ArgumentCaptor.forClass(Request.class);
-		verify(okHttpClient).newCall(firstReq.capture());
-		JsonArray sentBody = bodyAsJsonArray(firstReq.getValue());
-		String eventId = sentBody.get(0).getAsJsonObject().get("eventId").getAsString();
+		// Both calls fired synchronously out of accept(), before either callback ran.
+		ArgumentCaptor<Request> captor = ArgumentCaptor.forClass(Request.class);
+		verify(okHttpClient, times(2)).newCall(captor.capture());
+		verify(firstCall).enqueue(any());
+		verify(secondCall).enqueue(any());
 
-		EventResultDto result = new EventResultDto();
-		result.setEventId(eventId);
-		result.setStatus("ok");
-		BingoVerdictDto verdict = new BingoVerdictDto();
-		verdict.setRequestScreenshot(true);
-		result.setBingo(verdict);
-		EventsResponseDto resp = new EventsResponseDto();
-		resp.setResults(Collections.singletonList(result));
-
-		Callback callback = captureCallback(eventsCall);
-		callback.onResponse(eventsCall, response(200, gson.toJson(resp)));
-
-		verify(okHttpClient, times(2)).newCall(any());
-		verify(screenshotCall).enqueue(any());
+		boolean sawScreenshotUpload = captor.getAllValues().stream()
+			.anyMatch(req -> req.url().toString().endsWith("/screenshot"));
+		boolean sawEventsPost = captor.getAllValues().stream()
+			.anyMatch(req -> req.url().toString().endsWith("/v1/events"));
+		assertTrue(sawScreenshotUpload);
+		assertTrue(sawEventsPost);
 	}
 
 	private Callback captureCallback(Call call)

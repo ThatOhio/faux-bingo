@@ -1,6 +1,5 @@
 package com.fauxbingo.services;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.data.Confidence;
 import com.fauxbingo.services.data.DropItem;
 import com.fauxbingo.services.data.DropSignal;
@@ -26,8 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Merges the one signal each loot handler produces into a single authoritative/enriched event
- * per physical drop, so both the Discord webhook and (eventually) the v1 API only ever see one
- * event for one item.
+ * per physical drop, so EventEnvelopeSink (EventsApiService) only ever sees one event for one
+ * item.
  *
  * Two dedup layers exist on purpose. LootEventHandler's TILE_SCAN/SERVER pairing and
  * RaidLootHandler's own chat+chest assembly already solve same-method duplicates with timing
@@ -43,8 +42,6 @@ public class DropCorrelationService
 	private static final long SWEEP_INTERVAL_MS = 500;
 	private static final Pattern QUANTITY_PREFIX = Pattern.compile("^[0-9,]+\\s*x\\s+");
 
-	private final FauxBingoConfig config;
-	private final WebhookService webhookService;
 	private final EventEnvelopeSink envelopeSink;
 	private final ScheduledExecutorService executor;
 
@@ -52,11 +49,8 @@ public class DropCorrelationService
 	private ScheduledFuture<?> sweepTask;
 
 	@Inject
-	public DropCorrelationService(FauxBingoConfig config, WebhookService webhookService,
-		EventEnvelopeSink envelopeSink, ScheduledExecutorService executor)
+	public DropCorrelationService(EventEnvelopeSink envelopeSink, ScheduledExecutorService executor)
 	{
-		this.config = config;
-		this.webhookService = webhookService;
 		this.envelopeSink = envelopeSink;
 		this.executor = executor;
 	}
@@ -80,7 +74,7 @@ public class DropCorrelationService
 		flushAll();
 	}
 
-	/** Handlers call this instead of touching WebhookService/EventsApiService directly. */
+	/** Handlers call this instead of touching EventsApiService directly. */
 	public synchronized void report(DropSignal signal)
 	{
 		if (signal == null)
@@ -225,7 +219,7 @@ public class DropCorrelationService
 		try
 		{
 			MergedDropEvent merged = resolve(group.signals, group.dropGroupId);
-			dispatch(merged, group.signals);
+			dispatch(merged);
 		}
 		catch (Exception e)
 		{
@@ -260,8 +254,6 @@ public class DropCorrelationService
 			}
 		}
 
-		String finalMessage = composeMessage(primary, signals, petName);
-
 		return MergedDropEvent.builder()
 			.type(primary.getDetectionMethod().getType())
 			.dropGroupId(dropGroupId)
@@ -270,7 +262,6 @@ public class DropCorrelationService
 			.petName(petName)
 			.sourceNameGuess(sourceNameGuess)
 			.corroboratedValueGe(corroboratedValue)
-			.finalMessage(finalMessage)
 			.screenshot(primary.getScreenshot())
 			.build();
 	}
@@ -318,83 +309,9 @@ public class DropCorrelationService
 		return score;
 	}
 
-	/**
-	 * Base text is the winning signal's own message. A PET winner paired with a COLLECTION_LOG
-	 * corroborator gets its name spliced in, since that's the only way the plugin ever learns a
-	 * pet's name. Every other corroborator just adds a one-line footnote.
-	 */
-	private static String composeMessage(DropSignal primary, List<DropSignal> signals, String petName)
+	/** Only remaining consumer is the sink, everything reaches the API regardless of value. */
+	private void dispatch(MergedDropEvent merged)
 	{
-		String message = primary.getWebhookMessage();
-		if (petName != null && primary.getDetectionMethod().getType() == DropType.PET)
-		{
-			message = message.endsWith("!")
-				? message.substring(0, message.length() - 1) + ": **" + petName + "**!"
-				: message + ": **" + petName + "**";
-		}
-
-		StringBuilder combined = new StringBuilder(message);
-		for (DropSignal other : signals)
-		{
-			if (other == primary)
-			{
-				continue;
-			}
-			String extra = additionalText(other);
-			if (extra != null)
-			{
-				combined.append("\n").append(extra);
-			}
-		}
-		return combined.toString();
-	}
-
-	private static String additionalText(DropSignal signal)
-	{
-		switch (signal.getDetectionMethod())
-		{
-			case CHAT_COLLECTION_LOG:
-			case NOTIFICATION_COLLECTION_LOG:
-				return "*This item was also added to their collection log!*";
-			case CHAT_VALUABLE_DROP:
-				return "*This was also a valuable drop!*";
-			case CHAT_PET:
-				return "*They also received a pet!*";
-			default:
-				if (signal.getDetectionMethod().getType() == DropType.LOOT && signal.getSourceName() != null)
-				{
-					return String.format("Dropped by: **%s**", signal.getSourceName());
-				}
-				return null;
-		}
-	}
-
-	/** Preserves each handler's own notify rule (value threshold, or always-on for pets/clog/rares). */
-	private void dispatch(MergedDropEvent merged, List<DropSignal> signals)
-	{
-		long mergedValue = 0;
-		boolean alwaysNotify = false;
-		for (DropSignal signal : signals)
-		{
-			if (signal.getTotalValueGe() != null)
-			{
-				mergedValue = Math.max(mergedValue, signal.getTotalValueGe());
-			}
-			if (signal.isAlwaysNotify())
-			{
-				alwaysNotify = true;
-			}
-		}
-		if (merged.getCorroboratedValueGe() != null)
-		{
-			mergedValue = Math.max(mergedValue, merged.getCorroboratedValueGe());
-		}
-
-		if (alwaysNotify || mergedValue >= config.minLootValue())
-		{
-			webhookService.sendWebhook(config.webhookUrl(), merged.getFinalMessage(), merged.getScreenshot(), true);
-		}
-
 		envelopeSink.accept(merged);
 	}
 

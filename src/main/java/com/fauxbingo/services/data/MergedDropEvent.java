@@ -7,8 +7,8 @@ import lombok.Data;
 
 /**
  * The single resolved event for one physical drop, folded together from every DropSignal that
- * matched within DropCorrelationService's correlation window. This is what a future v1 API
- * client sends; for now it is only handed to EventEnvelopeSink, nothing transports it yet.
+ * matched within DropCorrelationService's correlation window. Handed to EventEnvelopeSink, whose
+ * live implementation (EventsApiService) transports it via POST /v1/events.
  */
 @Data
 @Builder
@@ -24,6 +24,5 @@ public class MergedDropEvent
 	private String sourceNameGuess;
 	/** Chat-reported total, used only when the primary signal's own priced total was missing/zero. */
 	private Long corroboratedValueGe;
-	private String finalMessage;
 	private BufferedImage screenshot;
 }

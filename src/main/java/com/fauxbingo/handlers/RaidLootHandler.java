@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.data.DetectionMethod;
@@ -70,7 +69,6 @@ public class RaidLootHandler
 	}
 
 	private final Client client;
-	private final FauxBingoConfig config;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final ItemManager itemManager;
@@ -85,11 +83,6 @@ public class RaidLootHandler
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (!config.includeRaidLoot())
-		{
-			return;
-		}
-
 		if (event.getType() != ChatMessageType.GAMEMESSAGE
 			&& event.getType() != ChatMessageType.SPAM
 			&& event.getType() != ChatMessageType.TRADE
@@ -104,11 +97,6 @@ public class RaidLootHandler
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
 	{
-		if (!config.includeRaidLoot())
-		{
-			return;
-		}
-
 		int groupId = event.getGroupId();
 
 		if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id || groupId == ToA_Interface_Id)
@@ -120,11 +108,6 @@ public class RaidLootHandler
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (!config.includeRaidLoot())
-		{
-			return;
-		}
-
 		int containerId = event.getContainerId();
 		if (containerId == CoX_Container_Id || containerId == ToB_Container_Id || containerId == ToA_Container_Id)
 		{
@@ -317,41 +300,13 @@ public class RaidLootHandler
 			}
 		}
 
-		boolean hasRareDrop = !rareDrops.isEmpty();
-		reportRaidLoot(raidName, allItems, totalValue, hasRareDrop);
+		reportRaidLoot(raidName, allItems, totalValue);
 	}
 
-	private void reportRaidLoot(String raidName, List<DropItem> allItems, long totalValue, boolean hasRareDrop)
+	private void reportRaidLoot(String raidName, List<DropItem> allItems, long totalValue)
 	{
-		String playerName = getLocalPlayerName();
-		StringBuilder message = new StringBuilder();
-
-		if (hasRareDrop)
-		{
-			message.append(String.format("**%s** just received a rare drop from %s: **%s**!\n",
-				playerName, raidName, String.join(", ", rareDrops)));
-		}
-		else
-		{
-			message.append(String.format("**%s** just received loot from %s:\n", playerName, raidName));
-		}
-
-		StringBuilder lootList = new StringBuilder();
-		for (DropItem item : allItems)
-		{
-			if (lootList.length() > 0) lootList.append(", ");
-			lootList.append(item.getQuantity()).append(" x ").append(item.getName());
-		}
-		message.append("Loot: ").append(lootList).append(String.format(" (Total value: %,d gp)", totalValue));
-
-		if (raidKc != null && raidKc > 0)
-		{
-			message.append(String.format("\nKill Count: **%d**", raidKc));
-		}
-
 		Integer kc = raidKc;
 		String variant = raidType != null ? raidType.name() : null;
-		String finalMessage = message.toString();
 
 		// Read now rather than from inside the async screenshot callback below, same reasoning
 		// as LootEventHandler: reflects the raid room, not wherever the player walks to next.
@@ -370,8 +325,6 @@ public class RaidLootHandler
 				.plane(plane)
 				.items(allItems)
 				.totalValueGe(totalValue)
-				.webhookMessage(finalMessage)
-				.alwaysNotify(hasRareDrop)
 				.screenshot(image)
 				.build();
 			dropCorrelationService.report(signal);

@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.ScreenshotService;
@@ -14,7 +13,6 @@ import javax.inject.Singleton;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.client.eventbus.Subscribe;
 
@@ -34,8 +32,6 @@ public class PetChatHandler
 		"You have a funny feeling like you would have been followed"
 	);
 
-	private final Client client;
-	private final FauxBingoConfig config;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final DropCorrelationService dropCorrelationService;
@@ -44,11 +40,6 @@ public class PetChatHandler
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (!config.includePets())
-		{
-			return;
-		}
-
 		if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM)
 		{
 			return;
@@ -67,9 +58,6 @@ public class PetChatHandler
 	{
 		log.info("Pet drop detected");
 
-		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
-		String webhookMessage = String.format("**%s** just received a new pet!", playerName);
-
 		// Best guess at what the pet came from; the plugin has no better signal than this.
 		List<String> recentInteractions = interactionTrackingService != null
 			? interactionTrackingService.getRecentInteractionNames()
@@ -81,8 +69,6 @@ public class PetChatHandler
 				.detectionMethod(DetectionMethod.CHAT_PET)
 				.raw(rawChatLine)
 				.sourceNameGuess(sourceNameGuess)
-				.webhookMessage(webhookMessage)
-				.alwaysNotify(true)
 				.screenshot(image)
 				.build();
 			dropCorrelationService.report(signal);

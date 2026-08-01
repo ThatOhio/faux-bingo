@@ -106,7 +106,7 @@ public class MeServiceTest
 
 		callback.onResponse(call, response(200, gson.toJson(dto)));
 
-		assertEquals("https://discord.com/api/webhooks/team", meService.getDiscordScreenshotWebhookUrl());
+		assertEquals("Red Team", meService.getCachedMe().getTeam().getName());
 		verify(configManager).setConfiguration("fauxbingo", "teamName", "Red Team");
 		verify(configManager).setConfiguration("fauxbingo", "teamNameColor", new Color(0xFF, 0x00, 0x00));
 	}
@@ -139,7 +139,7 @@ public class MeServiceTest
 		Callback callback = captureCallback();
 		callback.onResponse(call, response(401, ""));
 
-		assertNull(meService.getDiscordScreenshotWebhookUrl());
+		assertNull(meService.getCachedMe());
 	}
 
 	@Test

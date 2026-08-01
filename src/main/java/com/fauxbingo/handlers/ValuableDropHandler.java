@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.data.DetectionMethod;
@@ -16,7 +15,6 @@ import javax.inject.Singleton;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.client.eventbus.Subscribe;
 
@@ -37,8 +35,6 @@ public class ValuableDropHandler
 	/** The chat line embeds quantity in the name, as in "30 x Dragon bones". */
 	private static final Pattern QUANTITY_PREFIX = Pattern.compile("^([0-9,]+) x ");
 
-	private final Client client;
-	private final FauxBingoConfig config;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final DropCorrelationService dropCorrelationService;
@@ -46,11 +42,6 @@ public class ValuableDropHandler
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (!config.includeValuableDrops())
-		{
-			return;
-		}
-
 		if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM)
 		{
 			return;
@@ -63,19 +54,14 @@ public class ValuableDropHandler
 		{
 			long valuableDropValue = Long.parseLong(matcher.group(2).replaceAll(",", ""));
 			String valuableDropNameWithQuantity = matcher.group(1).split(" \\(")[0];
-			String valuableDropValueString = matcher.group(2);
-			reportValuableDrop(chatMessage, valuableDropNameWithQuantity, valuableDropValueString, valuableDropValue);
+			reportValuableDrop(chatMessage, valuableDropNameWithQuantity, valuableDropValue);
 		}
 	}
 
-	private void reportValuableDrop(String rawChatLine, String itemNameWithQuantity, String valueString, long value)
+	private void reportValuableDrop(String rawChatLine, String itemNameWithQuantity, long value)
 	{
-		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
 		String itemName = cleanItemName(itemNameWithQuantity);
 		int quantity = parseQuantity(itemNameWithQuantity);
-
-		String message = String.format("**%s** just received a valuable drop: **%s**!\nApprox Value: **%s coins**",
-			playerName, itemNameWithQuantity, valueString);
 
 		DropItem dropItem = DropItem.builder()
 			.name(itemName)
@@ -90,7 +76,6 @@ public class ValuableDropHandler
 				.sourceKind(SourceKind.OTHER)
 				.items(Collections.singletonList(dropItem))
 				.totalValueGe(value)
-				.webhookMessage(message)
 				.screenshot(image)
 				.build();
 			dropCorrelationService.report(signal);

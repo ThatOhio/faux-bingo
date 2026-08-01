@@ -1,7 +1,10 @@
 # Faux Bingo
-Helper plugin to simplify the setup required for clan events in the Faux community. 
+Helper plugin to simplify the setup required for clan events in the Faux community.
 
 ## Features
-- Discord webhook integration for loot/clogs/pets/etc. Parity with [Better Discord Loot Logger](https://runelite.net/plugin-hub/show/better-discord-loot-logger)
+- Streams drops, collection log entries, pets, and deaths to the Bingo API for clan bingo events, with evidence screenshots on request. Requires the Bingo API to be enabled and a player token from the bingo website set in plugin config.
 - Team name overlay for verification purposes. Similar to [Clan Events](https://runelite.net/plugin-hub/show/elysiumevents-plugin)
-- Automatic Wise Old Man updating on logout. From [Wise Old Man](https://runelite.net/plugin-hub/show/wom-utils)
+- Team icons in chat for active bingo event participants, when the Bingo API is enabled
+- Automatic Wise Old Man updating on logout/world hop when you've gained 10k+ XP or leveled up during the session. From [Wise Old Man](https://runelite.net/plugin-hub/show/wom-utils)
+
+See [docs/v1-api.md](docs/v1-api.md) and [docs/bingo-events-api.md](docs/bingo-events-api.md) for Bingo API details.

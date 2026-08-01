@@ -104,7 +104,6 @@ public class LootEventHandlerTest
 		org.junit.Assert.assertEquals(Integer.valueOf(732), signal.getCombatLevel());
 		org.junit.Assert.assertEquals(Integer.valueOf(9007), signal.getRegionId());
 		org.junit.Assert.assertEquals(1_000_000L, signal.getTotalValueGe().longValue());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Vorkath"));
 	}
 
 	@Test
@@ -120,7 +119,7 @@ public class LootEventHandlerTest
 		verify(dropCorrelationService).report(captor.capture());
 		DropSignal signal = captor.getValue();
 		org.junit.Assert.assertEquals(DetectionMethod.PLAYER_LOOT_RECEIVED, signal.getDetectionMethod());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("PKedPlayer"));
+		org.junit.Assert.assertEquals("PKedPlayer", signal.getSourceName());
 	}
 
 	@Test
@@ -151,8 +150,9 @@ public class LootEventHandlerTest
 		verify(dropCorrelationService).report(any());
 	}
 
+	/** Every stack in the drop reaches the signal, even repeated item names across separate stacks. */
 	@Test
-	public void testGroupedLootSummaryAggregatesDuplicateNames()
+	public void testMultipleStacksOfSameItemAllReported()
 	{
 		when(npc.getName()).thenReturn("GLWZ");
 
@@ -178,9 +178,6 @@ public class LootEventHandlerTest
 
 		ArgumentCaptor<DropSignal> captor = ArgumentCaptor.forClass(DropSignal.class);
 		verify(dropCorrelationService).report(captor.capture());
-		String message = captor.getValue().getWebhookMessage();
-
-		// Expect grouped summary preserving first-seen order: Sharks combined into 3, then teleports 8
-		org.junit.Assert.assertTrue("Expected grouped loot summary in message", message.contains("3 x Shark, 8 x Teleport to house"));
+		org.junit.Assert.assertEquals(3, captor.getValue().getItems().size());
 	}
 }

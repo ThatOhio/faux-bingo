@@ -5,7 +5,6 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
-import net.runelite.client.config.Keybind;
 
 @ConfigGroup("fauxbingo")
 public interface FauxBingoConfig extends Config
@@ -25,11 +24,11 @@ public interface FauxBingoConfig extends Config
 	String overlaySection = "overlay";
 
 	@ConfigSection(
-		name = "Discord Alerts",
-		description = "Configure Discord webhook notifications",
-		position = 3
+		name = "Screenshots",
+		description = "Privacy options for evidence screenshots sent to the API",
+		position = 2
 	)
-	String discordAlertsSection = "discordAlerts";
+	String screenshotsSection = "screenshots";
 
 	// ========== API Configuration ==========
 
@@ -145,39 +144,14 @@ public interface FauxBingoConfig extends Config
 		return Color.WHITE;
 	}
 
-	// ========== Discord Alerts Configuration ==========
-
-	@ConfigItem(
-		keyName = "webhookUrl",
-		name = "Webhook URL",
-		description = "The Discord Webhook URL(s) to send loot notifications to, separated by newlines",
-		position = 1,
-		section = discordAlertsSection
-	)
-	default String webhookUrl()
-	{
-		return "";
-	}
-
-
-	@ConfigItem(
-		keyName = "manualScreenshotKeybind",
-		name = "Manual Screenshot Keybind",
-		description = "Keybind to manually send a screenshot to the webhook",
-		position = 3,
-		section = discordAlertsSection
-	)
-	default Keybind manualScreenshotKeybind()
-	{
-		return Keybind.NOT_SET;
-	}
+	// ========== Screenshots Configuration ==========
 
 	@ConfigItem(
 		keyName = "screenshotHidePrivateMessages",
 		name = "Hide PMs in Screenshots",
-		description = "Hide private message windows before taking webhook screenshots, then restore them",
-		position = 4,
-		section = discordAlertsSection
+		description = "Hide private message windows before taking evidence screenshots for the API, then restore them",
+		position = 1,
+		section = screenshotsSection
 	)
 	default boolean screenshotHidePrivateMessages()
 	{
@@ -187,83 +161,11 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 		keyName = "screenshotHideChat",
 		name = "Hide Chat in Screenshots",
-		description = "Hide the main chat area before taking webhook screenshots, then restore it",
-		position = 5,
-		section = discordAlertsSection
+		description = "Hide the main chat area before taking evidence screenshots for the API, then restore it",
+		position = 2,
+		section = screenshotsSection
 	)
 	default boolean screenshotHideChat()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "includePets",
-		name = "Include Pets",
-		description = "Send webhook notification when receiving a pet",
-		position = 6,
-		section = discordAlertsSection
-	)
-	default boolean includePets()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "includeCollectionLog",
-		name = "Include Collection Log",
-		description = "Send webhook notification for new collection log entries",
-		position = 7,
-		section = discordAlertsSection
-	)
-	default boolean includeCollectionLog()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "includeValuableDrops",
-		name = "Include Valuable Drops",
-		description = "Send webhook notification for valuable drops above threshold",
-		position = 8,
-		section = discordAlertsSection
-	)
-	default boolean includeValuableDrops()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "includeRaidLoot",
-		name = "Include Raid Loot",
-		description = "Send webhook notification for raid unique drops (COX/TOB)",
-		position = 9,
-		section = discordAlertsSection
-	)
-	default boolean includeRaidLoot()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "minLootValue",
-		name = "Min Loot Value",
-		description = "Min value (gp) for loot webhooks. Valuable drops, NPC/player loot, raid chests.",
-		position = 10,
-		section = discordAlertsSection
-	)
-	default int minLootValue()
-	{
-		return 1000000;
-	}
-
-	@ConfigItem(
-		keyName = "funnyGameModeMessages",
-		name = "Funny Game Mode Messages",
-		description = "Include a goofy message when playing on temporary game modes (Leagues, Deadman, etc.)",
-		position = 11,
-		section = discordAlertsSection
-	)
-	default boolean funnyGameModeMessages()
 	{
 		return false;
 	}

@@ -1,14 +1,11 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.data.DetectionMethod;
 import com.fauxbingo.services.data.DropSignal;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.Player;
 import net.runelite.api.events.ChatMessage;
 import org.junit.Before;
 import org.junit.Test;
@@ -24,12 +21,6 @@ import static org.mockito.Mockito.*;
 public class ValuableDropHandlerTest
 {
 	@Mock
-	private Client client;
-
-	@Mock
-	private FauxBingoConfig config;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
@@ -38,18 +29,12 @@ public class ValuableDropHandlerTest
 	@Mock
 	private DropCorrelationService dropCorrelationService;
 
-	@Mock
-	private Player player;
-
 	private ValuableDropHandler valuableDropHandler;
 
 	@Before
 	public void before()
 	{
-		valuableDropHandler = new ValuableDropHandler(client, config, screenshotService, executor, dropCorrelationService);
-		when(client.getLocalPlayer()).thenReturn(player);
-		when(player.getName()).thenReturn("TestPlayer");
-		when(config.includeValuableDrops()).thenReturn(true);
+		valuableDropHandler = new ValuableDropHandler(screenshotService, executor, dropCorrelationService);
 
 		doAnswer(invocation -> {
 			Runnable r = invocation.getArgument(0);
@@ -84,7 +69,6 @@ public class ValuableDropHandlerTest
 		org.junit.Assert.assertEquals(DetectionMethod.CHAT_VALUABLE_DROP, signal.getDetectionMethod());
 		org.junit.Assert.assertEquals("Dragon metal sheet", signal.getItems().get(0).getName());
 		org.junit.Assert.assertEquals(1_155_320L, signal.getTotalValueGe().longValue());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Dragon metal sheet"));
 	}
 
 	@Test
@@ -97,7 +81,7 @@ public class ValuableDropHandlerTest
 		valuableDropHandler.onChatMessage(event);
 
 		DropSignal signal = captureSignal();
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Dragon metal sheet"));
+		org.junit.Assert.assertEquals("Dragon metal sheet", signal.getItems().get(0).getName());
 	}
 
 	/** No local value gating here anymore, that decision moved to DropCorrelationService. */
@@ -111,19 +95,6 @@ public class ValuableDropHandlerTest
 		valuableDropHandler.onChatMessage(event);
 
 		verify(dropCorrelationService).report(any());
-	}
-
-	@Test
-	public void testDisabled()
-	{
-		when(config.includeValuableDrops()).thenReturn(false);
-		ChatMessage event = new ChatMessage();
-		event.setType(ChatMessageType.GAMEMESSAGE);
-		event.setMessage("Valuable drop: Dragon metal sheet (1,155,320 coins)");
-
-		valuableDropHandler.onChatMessage(event);
-
-		verifyNoInteractions(dropCorrelationService);
 	}
 
 	@Test
@@ -151,7 +122,6 @@ public class ValuableDropHandlerTest
 		// The bundling key (cleaned) should be "Chaos rune", quantity parsed out of the chat text
 		org.junit.Assert.assertEquals("Chaos rune", signal.getItems().get(0).getName());
 		org.junit.Assert.assertEquals(30, signal.getItems().get(0).getQuantity());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("30 x Chaos rune"));
 	}
 
 	@Test
@@ -166,6 +136,5 @@ public class ValuableDropHandlerTest
 		DropSignal signal = captureSignal();
 		org.junit.Assert.assertEquals("Chaos rune", signal.getItems().get(0).getName());
 		org.junit.Assert.assertEquals(1000, signal.getItems().get(0).getQuantity());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("1,000 x Chaos rune"));
 	}
 }

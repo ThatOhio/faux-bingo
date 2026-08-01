@@ -1,11 +1,13 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.data.DetectionMethod;
+import com.fauxbingo.services.data.DropItem;
 import com.fauxbingo.services.data.DropSignal;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Collectors;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.Item;
@@ -33,9 +35,6 @@ public class RaidLootHandlerTest
 	private Client client;
 
 	@Mock
-	private FauxBingoConfig config;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
@@ -61,11 +60,10 @@ public class RaidLootHandlerTest
 	@Before
 	public void before()
 	{
-		raidLootHandler = new RaidLootHandler(client, config, screenshotService, executor, itemManager, dropCorrelationService);
+		raidLootHandler = new RaidLootHandler(client, screenshotService, executor, itemManager, dropCorrelationService);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
 		when(player.getWorldLocation()).thenReturn(WorldPoint.fromRegion(12889, 32, 32, 0));
-		when(config.includeRaidLoot()).thenReturn(true);
 
 		doAnswer(invocation -> {
 			Runnable r = invocation.getArgument(0);
@@ -112,14 +110,11 @@ public class RaidLootHandlerTest
 
 		DropSignal signal = captureSignal();
 		org.junit.Assert.assertEquals(DetectionMethod.RAID_CHEST_CONTAINER, signal.getDetectionMethod());
-		org.junit.Assert.assertTrue(signal.isAlwaysNotify());
 		org.junit.Assert.assertEquals(Integer.valueOf(100), signal.getKillCount());
 		org.junit.Assert.assertEquals("COX", signal.getVariant());
 		org.junit.Assert.assertEquals(Integer.valueOf(12889), signal.getRegionId());
-		String message = signal.getWebhookMessage();
-		org.junit.Assert.assertTrue(message.contains("Twisted bow"));
-		org.junit.Assert.assertTrue(message.contains("Kill Count: **100**"));
-		org.junit.Assert.assertTrue(message.contains("1 x Twisted bow"));
+		org.junit.Assert.assertEquals("Twisted bow", signal.getItems().get(0).getName());
+		org.junit.Assert.assertEquals(1, signal.getItems().get(0).getQuantity());
 	}
 
 	@Test
@@ -146,7 +141,7 @@ public class RaidLootHandlerTest
 		raidLootHandler.onItemContainerChanged(containerEvent);
 
 		DropSignal signal = captureSignal();
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Scythe of vitur"));
+		org.junit.Assert.assertEquals("Scythe of vitur (Uncharged)", signal.getItems().get(0).getName());
 	}
 
 	@Test
@@ -168,7 +163,6 @@ public class RaidLootHandlerTest
 		raidLootHandler.onItemContainerChanged(containerEvent);
 
 		DropSignal signal = captureSignal();
-		org.junit.Assert.assertFalse(signal.isAlwaysNotify());
 		org.junit.Assert.assertEquals(200L, signal.getTotalValueGe().longValue());
 	}
 
@@ -218,10 +212,10 @@ public class RaidLootHandlerTest
 
 		// Should report ONE signal with everything folded in
 		DropSignal signal = captureSignal();
-		String message = signal.getWebhookMessage();
-		org.junit.Assert.assertTrue(message.contains("Twisted bow"));
-		org.junit.Assert.assertTrue(message.contains("Metamorphic dust"));
-		org.junit.Assert.assertTrue(message.contains("100 x Soul runes"));
+		List<String> itemNames = signal.getItems().stream().map(DropItem::getName).collect(Collectors.toList());
+		org.junit.Assert.assertTrue(itemNames.contains("Twisted bow"));
+		org.junit.Assert.assertTrue(itemNames.contains("Metamorphic dust"));
+		org.junit.Assert.assertTrue(itemNames.contains("Soul runes"));
 	}
 
 	@Test
@@ -254,9 +248,9 @@ public class RaidLootHandlerTest
 
 		DropSignal signal = captureSignal();
 		org.junit.Assert.assertEquals(1_400_000L, signal.getTotalValueGe().longValue());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Total value: 1,400,000 gp"));
 	}
 
+	/** A teammate's unique chat line must not make the local container loot look richer than it is. */
 	@Test
 	public void testToaTeammateUniqueIgnored()
 	{
@@ -276,8 +270,8 @@ public class RaidLootHandlerTest
 		raidLootHandler.onItemContainerChanged(event);
 
 		DropSignal signal = captureSignal();
-		org.junit.Assert.assertFalse(signal.isAlwaysNotify());
-		org.junit.Assert.assertFalse(signal.getWebhookMessage().contains("received a rare drop"));
+		org.junit.Assert.assertEquals(1, signal.getItems().size());
+		org.junit.Assert.assertEquals("Coins", signal.getItems().get(0).getName());
 	}
 
 	@Test
@@ -301,7 +295,7 @@ public class RaidLootHandlerTest
 
 		// Should still process and use default raid name
 		DropSignal signal = captureSignal();
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Chambers of Xeric"));
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Twisted bow"));
+		org.junit.Assert.assertEquals("Chambers of Xeric", signal.getSourceName());
+		org.junit.Assert.assertEquals("Twisted bow", signal.getItems().get(0).getName());
 	}
 }

@@ -11,9 +11,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -35,7 +33,7 @@ import net.runelite.http.api.loottracker.LootRecordType;
  * Handles loot-related events from NPCs, players, and non-combat sources. Builds one DropSignal
  * per detection and hands it to DropCorrelationService, which decides whether it gets merged
  * with corroborating signals from other handlers (valuable drop chat, collection log, pet)
- * before anything is sent to Discord or the future API.
+ * before anything is sent to the API.
  */
 @Slf4j
 @Singleton
@@ -195,7 +193,6 @@ public class LootEventHandler
 		DetectionMethod method, Integer npcId, Integer combatLevel)
 	{
 		long totalValue = 0;
-		Map<String, Integer> quantityByName = new LinkedHashMap<>();
 		List<DropItem> dropItems = new ArrayList<>(items.size());
 
 		for (ItemStack itemStack : items)
@@ -206,7 +203,6 @@ public class LootEventHandler
 			totalValue += (long) price * quantity;
 
 			String itemName = itemManager.getItemComposition(itemId).getName();
-			quantityByName.merge(itemName, quantity, Integer::sum);
 
 			dropItems.add(DropItem.builder()
 				.id(itemId)
@@ -216,18 +212,6 @@ public class LootEventHandler
 				.build());
 		}
 
-		StringBuilder lootString = new StringBuilder();
-		for (Map.Entry<String, Integer> entry : quantityByName.entrySet())
-		{
-			if (lootString.length() > 0)
-			{
-				lootString.append(", ");
-			}
-			lootString.append(entry.getValue()).append(" x ").append(entry.getKey());
-		}
-
-		String message = String.format("Loot received from %s: %s (Total value: %,d gp)",
-			source, lootString.toString(), totalValue);
 		long finalTotalValue = totalValue;
 
 		// Read now, not from inside the async screenshot callback, so it reflects where the drop
@@ -237,7 +221,7 @@ public class LootEventHandler
 		Integer plane = location != null ? location.getPlane() : null;
 
 		// Captured immediately regardless of value, DropCorrelationService may still merge this
-		// into a group that crosses the notify threshold once a corroborating signal lands.
+		// with a corroborating signal from another handler before either reaches the API.
 		screenshotService.requestScreenshot(image -> executor.execute(() -> {
 			DropSignal signal = DropSignal.builder()
 				.detectionMethod(method)
@@ -249,7 +233,6 @@ public class LootEventHandler
 				.plane(plane)
 				.items(dropItems)
 				.totalValueGe(finalTotalValue)
-				.webhookMessage(message)
 				.screenshot(image)
 				.build();
 			dropCorrelationService.report(signal);

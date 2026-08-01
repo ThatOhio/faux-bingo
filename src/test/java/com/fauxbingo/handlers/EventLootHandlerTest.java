@@ -84,7 +84,7 @@ public class EventLootHandlerTest
 		verify(dropCorrelationService).report(captor.capture());
 		DropSignal signal = captor.getValue();
 		org.junit.Assert.assertEquals(DetectionMethod.LOOT_TRACKER_EVENT, signal.getDetectionMethod());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains(TEMPOROSS_EVENT));
+		org.junit.Assert.assertEquals(TEMPOROSS_EVENT, signal.getSourceName());
 	}
 
 	/** NPC and player kills reach us via LootManager, taking them here too would double post. */

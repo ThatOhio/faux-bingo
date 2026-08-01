@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.data.DetectionMethod;
@@ -36,7 +35,6 @@ public class CollectionLogHandler
 	private static final String COLLECTION_LOG_TEXT = "New item added to your collection log: ";
 
 	private final Client client;
-	private final FauxBingoConfig config;
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final DropCorrelationService dropCorrelationService;
@@ -46,11 +44,6 @@ public class CollectionLogHandler
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (!config.includeCollectionLog())
-		{
-			return;
-		}
-
 		if (event.getType() != ChatMessageType.GAMEMESSAGE && event.getType() != ChatMessageType.SPAM)
 		{
 			return;
@@ -68,11 +61,6 @@ public class CollectionLogHandler
 	@Subscribe
 	public void onScriptPreFired(ScriptPreFired event)
 	{
-		if (!config.includeCollectionLog())
-		{
-			return;
-		}
-
 		switch (event.getScriptId())
 		{
 			case ScriptID.NOTIFICATION_START:
@@ -97,10 +85,6 @@ public class CollectionLogHandler
 
 	private void reportCollectionLogEntry(String itemName, String rawText, DetectionMethod method)
 	{
-		String playerName = client.getLocalPlayer() != null ? client.getLocalPlayer().getName() : "Player";
-		String message = String.format("**%s** just received a new collection log item: **%s**!",
-			playerName, itemName);
-
 		DropItem dropItem = DropItem.builder()
 			.name(itemName)
 			.quantity(1)
@@ -111,8 +95,6 @@ public class CollectionLogHandler
 				.detectionMethod(method)
 				.raw(rawText)
 				.items(Collections.singletonList(dropItem))
-				.webhookMessage(message)
-				.alwaysNotify(true)
 				.screenshot(image)
 				.build();
 			dropCorrelationService.report(signal);

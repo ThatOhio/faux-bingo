@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.data.DetectionMethod;
@@ -8,7 +7,6 @@ import com.fauxbingo.services.data.DropSignal;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
-import net.runelite.api.Player;
 import net.runelite.api.ScriptID;
 import net.runelite.api.VarClientStr;
 import net.runelite.api.Varbits;
@@ -31,9 +29,6 @@ public class CollectionLogHandlerTest
 	private Client client;
 
 	@Mock
-	private FauxBingoConfig config;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
@@ -42,18 +37,12 @@ public class CollectionLogHandlerTest
 	@Mock
 	private DropCorrelationService dropCorrelationService;
 
-	@Mock
-	private Player player;
-
 	private CollectionLogHandler collectionLogHandler;
 
 	@Before
 	public void before()
 	{
-		collectionLogHandler = new CollectionLogHandler(client, config, screenshotService, executor, dropCorrelationService);
-		when(client.getLocalPlayer()).thenReturn(player);
-		when(player.getName()).thenReturn("TestPlayer");
-		when(config.includeCollectionLog()).thenReturn(true);
+		collectionLogHandler = new CollectionLogHandler(client, screenshotService, executor, dropCorrelationService);
 
 		doAnswer(invocation -> {
 			Runnable r = invocation.getArgument(0);
@@ -88,8 +77,6 @@ public class CollectionLogHandlerTest
 		DropSignal signal = captureSignal();
 		org.junit.Assert.assertEquals(DetectionMethod.CHAT_COLLECTION_LOG, signal.getDetectionMethod());
 		org.junit.Assert.assertEquals("Abyssal whip", signal.getItems().get(0).getName());
-		org.junit.Assert.assertTrue(signal.isAlwaysNotify());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Abyssal whip"));
 	}
 
 	@Test

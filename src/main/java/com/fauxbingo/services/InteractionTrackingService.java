@@ -46,8 +46,8 @@ public class InteractionTrackingService
 
 	/**
 	 * Returns names of entities the player has interacted with in the last 10 seconds.
-	 * Currently uncalled. Kept for the v1 events API, which needs it to guess PET.sourceName
-	 * (the pet chat message never names its source).
+	 * Called by PetChatHandler to guess a pet's source NPC/player, since the pet chat
+	 * message never names its source.
 	 */
 	public List<String> getRecentInteractionNames()
 	{

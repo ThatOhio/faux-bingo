@@ -7,7 +7,7 @@ import lombok.Data;
 
 /**
  * One handler's report of a detection, built and handed to DropCorrelationService instead of
- * going straight to WebhookService/EventsApiService. Same-method dedup (e.g. LootEventHandler's
+ * going straight to EventsApiService. Same-method dedup (e.g. LootEventHandler's
  * TILE_SCAN/SERVER pairing) still happens before this is built, so each handler produces at most
  * one signal per real detection; DropCorrelationService only merges across handlers.
  *
@@ -33,11 +33,7 @@ public class DropSignal
 	private Integer plane;
 	private List<DropItem> items;
 	private Long totalValueGe;
-	/** Human-readable Discord text this handler would have sent on its own. */
-	private String webhookMessage;
 	/** Best guess at a pet's source NPC/player, from InteractionTrackingService. PET signals only. */
 	private String sourceNameGuess;
-	/** True for signals that should always notify Discord regardless of value (pets, clog, rares). */
-	private boolean alwaysNotify;
 	private BufferedImage screenshot;
 }

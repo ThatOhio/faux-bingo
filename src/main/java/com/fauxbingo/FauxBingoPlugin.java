@@ -3,7 +3,6 @@ package com.fauxbingo;
 import com.fauxbingo.handlers.CollectionLogHandler;
 import com.fauxbingo.handlers.DeathHandler;
 import com.fauxbingo.handlers.LootEventHandler;
-import com.fauxbingo.handlers.ManualScreenshotHandler;
 import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
@@ -103,9 +102,6 @@ public class FauxBingoPlugin extends Plugin
 	private RaidLootHandler raidLootHandler;
 
 	@Inject
-	private ManualScreenshotHandler manualScreenshotHandler;
-
-	@Inject
 	private DeathHandler deathHandler;
 
 	@Inject
@@ -132,7 +128,6 @@ public class FauxBingoPlugin extends Plugin
 			eventBus.register(subscriber);
 		}
 
-		manualScreenshotHandler.register();
 		overlayManager.add(teamOverlay);
 
 		warnIfLootTrackerDisabled();
@@ -151,7 +146,6 @@ public class FauxBingoPlugin extends Plugin
 			eventBus.unregister(subscriber);
 		}
 
-		manualScreenshotHandler.unregister();
 		overlayManager.remove(teamOverlay);
 
 		meService.shutdown();

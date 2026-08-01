@@ -4,8 +4,8 @@ import com.fauxbingo.services.data.MergedDropEvent;
 
 /**
  * Receives the one merged/authoritative event per physical drop, resolved by
- * DropCorrelationService. This is the seam a real v1 API HTTP client plugs into later without
- * touching the correlation engine. Nothing implements this except a logging no-op today.
+ * DropCorrelationService. EventsApiService implements this and posts to the v1 events endpoint;
+ * the seam keeps the correlation engine from needing to know about HTTP transport at all.
  */
 public interface EventEnvelopeSink
 {

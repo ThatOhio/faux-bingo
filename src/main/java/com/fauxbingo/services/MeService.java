@@ -24,9 +24,9 @@ import okhttp3.Response;
 
 /**
  * Identity lookup for the plugin: GET /v1/me resolves the player token to a member and their
- * team (name, icon, colors, discordScreenshotWebhookUrl). Replaces the old bingoconfig endpoint.
- * Team name/colour are still auto-applied to the overlay config, same as before; dateTimeColor
- * has no server-side equivalent and stays user-controlled.
+ * team (name, icon, colors). Replaces the old bingoconfig endpoint. Team name/colour are still
+ * auto-applied to the overlay config, same as before; dateTimeColor has no server-side
+ * equivalent and stays user-controlled.
  */
 @Slf4j
 @Singleton
@@ -159,14 +159,6 @@ public class MeService
 	public MeResponseDto getCachedMe()
 	{
 		return cachedMe;
-	}
-
-	/** Null when the team has no webhook configured, or nothing has been fetched yet. */
-	public String getDiscordScreenshotWebhookUrl()
-	{
-		MeResponseDto me = cachedMe;
-		TeamDto team = me != null ? me.getTeam() : null;
-		return team != null ? team.getDiscordScreenshotWebhookUrl() : null;
 	}
 
 	private boolean enabled()

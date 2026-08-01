@@ -1,6 +1,5 @@
 package com.fauxbingo.handlers;
 
-import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.InteractionTrackingService;
 import com.fauxbingo.services.ScreenshotService;
@@ -10,8 +9,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.Player;
 import net.runelite.api.events.ChatMessage;
 import org.junit.Before;
 import org.junit.Test;
@@ -27,12 +24,6 @@ import static org.mockito.Mockito.*;
 public class PetChatHandlerTest
 {
 	@Mock
-	private Client client;
-
-	@Mock
-	private FauxBingoConfig config;
-
-	@Mock
 	private ScreenshotService screenshotService;
 
 	@Mock
@@ -44,18 +35,12 @@ public class PetChatHandlerTest
 	@Mock
 	private InteractionTrackingService interactionTrackingService;
 
-	@Mock
-	private Player player;
-
 	private PetChatHandler petChatHandler;
 
 	@Before
 	public void before()
 	{
-		petChatHandler = new PetChatHandler(client, config, screenshotService, executor, dropCorrelationService, interactionTrackingService);
-		when(client.getLocalPlayer()).thenReturn(player);
-		when(player.getName()).thenReturn("TestPlayer");
-		when(config.includePets()).thenReturn(true);
+		petChatHandler = new PetChatHandler(screenshotService, executor, dropCorrelationService, interactionTrackingService);
 		when(interactionTrackingService.getRecentInteractionNames()).thenReturn(Collections.emptyList());
 
 		doAnswer(invocation -> {
@@ -89,8 +74,6 @@ public class PetChatHandlerTest
 
 		DropSignal signal = captureSignal();
 		org.junit.Assert.assertEquals(DetectionMethod.CHAT_PET, signal.getDetectionMethod());
-		org.junit.Assert.assertTrue(signal.isAlwaysNotify());
-		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("TestPlayer"));
 	}
 
 	@Test
@@ -123,19 +106,6 @@ public class PetChatHandlerTest
 		ChatMessage event = new ChatMessage();
 		event.setType(ChatMessageType.GAMEMESSAGE);
 		event.setMessage("You catch a shrimp.");
-
-		petChatHandler.onChatMessage(event);
-
-		verifyNoInteractions(dropCorrelationService);
-	}
-
-	@Test
-	public void testDisabled()
-	{
-		when(config.includePets()).thenReturn(false);
-		ChatMessage event = new ChatMessage();
-		event.setType(ChatMessageType.GAMEMESSAGE);
-		event.setMessage("You have a funny feeling like you're being followed.");
 
 		petChatHandler.onChatMessage(event);
 

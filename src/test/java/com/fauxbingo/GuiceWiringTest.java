@@ -3,7 +3,6 @@ package com.fauxbingo;
 import com.fauxbingo.handlers.CollectionLogHandler;
 import com.fauxbingo.handlers.DeathHandler;
 import com.fauxbingo.handlers.LootEventHandler;
-import com.fauxbingo.handlers.ManualScreenshotHandler;
 import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
@@ -15,7 +14,6 @@ import com.fauxbingo.services.MeService;
 import com.fauxbingo.services.PresenceService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.TeamIconService;
-import com.fauxbingo.services.WebhookService;
 import com.fauxbingo.services.WiseOldManService;
 import com.fauxbingo.trackers.XpTracker;
 import com.google.gson.Gson;
@@ -47,7 +45,6 @@ public class GuiceWiringTest
 		PresenceService.class,
 		EventsApiService.class,
 		InteractionTrackingService.class,
-		WebhookService.class,
 		DropCorrelationService.class,
 		ScreenshotService.class,
 		WiseOldManService.class,
@@ -58,7 +55,6 @@ public class GuiceWiringTest
 		CollectionLogHandler.class,
 		ValuableDropHandler.class,
 		RaidLootHandler.class,
-		ManualScreenshotHandler.class,
 		DeathHandler.class,
 	};
 

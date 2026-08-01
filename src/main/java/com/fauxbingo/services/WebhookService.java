@@ -3,8 +3,14 @@ package com.fauxbingo.services;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -36,7 +42,7 @@ public class WebhookService
 	private final OkHttpClient okHttpClient;
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final BingoConfigService bingoConfigService;
+	private final MeService meService;
 	private final Random random = new Random();
 
 	private static final String[] LEAGUES_MESSAGES = {
@@ -64,19 +70,19 @@ public class WebhookService
 			"In a Tournament World because they can't afford the gear otherwise."
 	};
 
-	/** Without a BingoConfigService the effective webhook list is whatever the user configured. */
+	/** Without a MeService the effective webhook list is whatever the user configured. */
 	public WebhookService(Client client, OkHttpClient okHttpClient, FauxBingoConfig config)
 	{
 		this(client, okHttpClient, config, null);
 	}
 
 	@Inject
-	public WebhookService(Client client, OkHttpClient okHttpClient, FauxBingoConfig config, BingoConfigService bingoConfigService)
+	public WebhookService(Client client, OkHttpClient okHttpClient, FauxBingoConfig config, MeService meService)
 	{
 		this.client = client;
 		this.okHttpClient = okHttpClient;
 		this.config = config;
-		this.bingoConfigService = bingoConfigService;
+		this.meService = meService;
 	}
 
 	/**
@@ -103,15 +109,79 @@ public class WebhookService
 			return;
 		}
 
-		String effectiveUrls = (bingoConfigService != null)
-				? bingoConfigService.getEffectiveWebhookUrls(webhookUrls)
-				: webhookUrls;
+		String teamWebhook = meService != null ? meService.getDiscordScreenshotWebhookUrl() : null;
+		String effectiveUrls = getEffectiveWebhookUrls(webhookUrls, teamWebhook);
 		if (effectiveUrls == null || effectiveUrls.isEmpty())
 		{
 			return;
 		}
 
 		processWebhook(effectiveUrls, message, image);
+	}
+
+	/**
+	 * Merges the user's own webhookUrl config (comma/newline list) with the team's single
+	 * discordScreenshotWebhookUrl from /v1/me, deduping by normalized URL. Same behavior as the
+	 * old bingoconfig-list merge, just against a single team URL instead of a list.
+	 */
+	private static String getEffectiveWebhookUrls(String configWebhooks, String teamWebhook)
+	{
+		Set<String> seen = new LinkedHashSet<>();
+		StringBuilder result = new StringBuilder();
+
+		for (String url : splitWebhooks(configWebhooks))
+		{
+			String normalized = normalizeWebhookUrl(url);
+			if (!normalized.isEmpty() && seen.add(normalized))
+			{
+				if (result.length() > 0)
+				{
+					result.append("\n");
+				}
+				result.append(url.trim());
+			}
+		}
+
+		if (teamWebhook != null)
+		{
+			String normalized = normalizeWebhookUrl(teamWebhook);
+			if (!normalized.isEmpty() && seen.add(normalized))
+			{
+				if (result.length() > 0)
+				{
+					result.append("\n");
+				}
+				result.append(teamWebhook.trim());
+			}
+		}
+
+		return result.toString();
+	}
+
+	private static List<String> splitWebhooks(String s)
+	{
+		if (s == null || s.isEmpty())
+		{
+			return Collections.emptyList();
+		}
+		return Arrays.stream(s.split("[\n,]"))
+			.map(String::trim)
+			.filter(x -> !x.isEmpty())
+			.collect(Collectors.toList());
+	}
+
+	private static String normalizeWebhookUrl(String url)
+	{
+		if (url == null)
+		{
+			return "";
+		}
+		String t = url.trim();
+		if (t.isEmpty())
+		{
+			return "";
+		}
+		return t.endsWith("/") ? t.substring(0, t.length() - 1) : t;
 	}
 
 	private String getGameModeAnnotation()

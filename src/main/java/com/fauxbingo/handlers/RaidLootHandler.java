@@ -21,6 +21,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.WidgetLoaded;
@@ -349,13 +350,24 @@ public class RaidLootHandler
 		}
 
 		Integer kc = raidKc;
+		String variant = raidType != null ? raidType.name() : null;
 		String finalMessage = message.toString();
+
+		// Read now rather than from inside the async screenshot callback below, same reasoning
+		// as LootEventHandler: reflects the raid room, not wherever the player walks to next.
+		WorldPoint location = client.getLocalPlayer() != null ? client.getLocalPlayer().getWorldLocation() : null;
+		Integer regionId = location != null ? location.getRegionID() : null;
+		Integer plane = location != null ? location.getPlane() : null;
+
 		screenshotService.requestScreenshot(image -> executor.execute(() -> {
 			DropSignal signal = DropSignal.builder()
 				.detectionMethod(DetectionMethod.RAID_CHEST_CONTAINER)
 				.sourceKind(SourceKind.RAID)
 				.sourceName(raidName)
 				.killCount(kc)
+				.variant(variant)
+				.regionId(regionId)
+				.plane(plane)
 				.items(allItems)
 				.totalValueGe(totalValue)
 				.webhookMessage(finalMessage)

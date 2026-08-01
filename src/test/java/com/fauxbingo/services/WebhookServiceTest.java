@@ -44,6 +44,9 @@ public class WebhookServiceTest
     @Mock
     private FauxBingoConfig config;
 
+    @Mock
+    private MeService meService;
+
     private WebhookService webhookService;
 
     @Before
@@ -239,5 +242,38 @@ public class WebhookServiceTest
             }
         }
         assertTrue("Body should contain one of the funny deadman messages", found);
+    }
+
+    @Test
+    public void testTeamWebhookFromMeServiceIsMerged()
+    {
+        when(meService.getDiscordScreenshotWebhookUrl()).thenReturn("http://team-webhook");
+        WebhookService withMeService = new WebhookService(client, okHttpClient, config, meService);
+
+        withMeService.sendWebhook("http://personal-webhook", "Message", null, true);
+
+        verify(okHttpClient, times(2)).newCall(any());
+    }
+
+    @Test
+    public void testDuplicateTeamWebhookIsNotSentTwice()
+    {
+        when(meService.getDiscordScreenshotWebhookUrl()).thenReturn("http://personal-webhook/");
+        WebhookService withMeService = new WebhookService(client, okHttpClient, config, meService);
+
+        withMeService.sendWebhook("http://personal-webhook", "Message", null, true);
+
+        verify(okHttpClient, times(1)).newCall(any());
+    }
+
+    @Test
+    public void testNullTeamWebhookFallsBackToPersonalOnly()
+    {
+        when(meService.getDiscordScreenshotWebhookUrl()).thenReturn(null);
+        WebhookService withMeService = new WebhookService(client, okHttpClient, config, meService);
+
+        withMeService.sendWebhook("http://personal-webhook", "Message", null, true);
+
+        verify(okHttpClient, times(1)).newCall(any());
     }
 }

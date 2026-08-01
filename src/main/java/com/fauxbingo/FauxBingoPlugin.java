@@ -8,14 +8,12 @@ import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.overlay.TeamOverlay;
-import com.fauxbingo.services.BingoConfigService;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.EventEnvelopeSink;
+import com.fauxbingo.services.EventsApiService;
 import com.fauxbingo.services.InteractionTrackingService;
-import com.fauxbingo.services.LogService;
-import com.fauxbingo.services.LoggingEventEnvelopeSink;
-import com.fauxbingo.services.ScreenshotService;
-import com.fauxbingo.services.WebhookService;
+import com.fauxbingo.services.MeService;
+import com.fauxbingo.services.PresenceService;
 import com.fauxbingo.services.TeamIconService;
 import com.fauxbingo.trackers.XpTracker;
 import com.google.inject.Provides;
@@ -48,11 +46,11 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class FauxBingoPlugin extends Plugin
 {
-	/** Guice binding name for the bingo API base URL. v1 replaces this with a config item. */
+	/** Guice binding name for the bingo API base URL. */
 	public static final String API_BASE_URL_KEY = "fauxBingoApiBaseUrl";
 
-	/** Base URL for the bingo API (logs, deaths, bingo-config). Not configurable. */
-	private static final String BINGO_API_BASE_URL = "https://faux-api.thatohio.me";
+	/** Base URL for the v1 bingo API (me, teams, seen, events). Not configurable, the player token is. */
+	private static final String BINGO_API_BASE_URL = "https://fauxbingo.com";
 
 	private static final String LOOT_TRACKER_PLUGIN_NAME = "Loot Tracker";
 
@@ -75,13 +73,16 @@ public class FauxBingoPlugin extends Plugin
 	private EventBus eventBus;
 
 	@Inject
-	private BingoConfigService bingoConfigService;
+	private MeService meService;
+
+	@Inject
+	private PresenceService presenceService;
+
+	@Inject
+	private EventsApiService eventsApiService;
 
 	@Inject
 	private InteractionTrackingService interactionTrackingService;
-
-	@Inject
-	private LogService logService;
 
 	@Inject
 	private DropCorrelationService dropCorrelationService;
@@ -120,9 +121,10 @@ public class FauxBingoPlugin extends Plugin
 	{
 		log.info("Faux Bingo started!");
 
-		bingoConfigService.start();
+		meService.start();
+		presenceService.start();
+		eventsApiService.start();
 		teamIconService.start();
-		logService.start();
 		dropCorrelationService.start();
 
 		for (Object subscriber : eventSubscribers())
@@ -152,9 +154,10 @@ public class FauxBingoPlugin extends Plugin
 		manualScreenshotHandler.unregister();
 		overlayManager.remove(teamOverlay);
 
-		bingoConfigService.shutdown();
+		meService.shutdown();
+		presenceService.shutdown();
+		eventsApiService.shutdown();
 		teamIconService.shutdown();
-		logService.shutdown();
 		dropCorrelationService.shutdown();
 		xpTracker.reset();
 
@@ -197,12 +200,14 @@ public class FauxBingoPlugin extends Plugin
 		{
 			loginTriggered = false;
 			checkLogin();
-			bingoConfigService.start();
+			meService.start();
+			presenceService.start();
+			eventsApiService.start();
 			teamIconService.start();
 			Player local = client.getLocalPlayer();
 			if (local != null && local.getName() != null && !local.getName().isEmpty())
 			{
-				bingoConfigService.refresh(local.getName());
+				meService.refresh(local.getName());
 			}
 		}
 	}
@@ -212,7 +217,7 @@ public class FauxBingoPlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.LOGGING_IN)
 		{
-			bingoConfigService.onLogout();
+			meService.onLogout();
 			resetState();
 		}
 
@@ -242,6 +247,7 @@ public class FauxBingoPlugin extends Plugin
 		loginTriggered = false;
 		collectionLogHandler.resetState();
 		raidLootHandler.resetState();
+		eventsApiService.resetSession();
 	}
 
 	private void warnIfLootTrackerDisabled()
@@ -284,7 +290,8 @@ public class FauxBingoPlugin extends Plugin
 			String name = local.getName();
 			if (name != null && !name.isEmpty())
 			{
-				bingoConfigService.onLogin(name);
+				meService.onLogin(name);
+				presenceService.onLogin(name);
 				loginTriggered = true;
 			}
 		}
@@ -303,9 +310,8 @@ public class FauxBingoPlugin extends Plugin
 		return BINGO_API_BASE_URL;
 	}
 
-	/** Swap this to a real v1 API client once one exists; DropCorrelationService doesn't change. */
 	@Provides
-	EventEnvelopeSink provideEventEnvelopeSink(LoggingEventEnvelopeSink sink)
+	EventEnvelopeSink provideEventEnvelopeSink(EventsApiService sink)
 	{
 		return sink;
 	}

@@ -7,7 +7,7 @@ import lombok.Data;
 
 /**
  * One handler's report of a detection, built and handed to DropCorrelationService instead of
- * going straight to WebhookService/LogService. Same-method dedup (e.g. LootEventHandler's
+ * going straight to WebhookService/EventsApiService. Same-method dedup (e.g. LootEventHandler's
  * TILE_SCAN/SERVER pairing) still happens before this is built, so each handler produces at most
  * one signal per real detection; DropCorrelationService only merges across handlers.
  *
@@ -25,7 +25,12 @@ public class DropSignal
 	private SourceKind sourceKind;
 	private String sourceName;
 	private Integer npcId;
+	private Integer combatLevel;
 	private Integer killCount;
+	/** Raid difficulty (COX/COX_CM/TOB/TOB_SM/TOB_HM/TOA_ENTRY/TOA_NORMAL/TOA_EXPERT). LOOT only. */
+	private String variant;
+	private Integer regionId;
+	private Integer plane;
 	private List<DropItem> items;
 	private Long totalValueGe;
 	/** Human-readable Discord text this handler would have sent on its own. */

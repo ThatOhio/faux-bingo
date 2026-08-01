@@ -2,7 +2,9 @@ package com.fauxbingo;
 
 import com.fauxbingo.handlers.CollectionLogHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
-import com.fauxbingo.services.BingoConfigService;
+import com.fauxbingo.services.EventsApiService;
+import com.fauxbingo.services.MeService;
+import com.fauxbingo.services.PresenceService;
 import com.fauxbingo.services.TeamIconService;
 import com.fauxbingo.trackers.XpTracker;
 import java.lang.reflect.Field;
@@ -30,7 +32,13 @@ public class LoginDetectionTest
     private FauxBingoConfig config;
 
     @Mock
-    private BingoConfigService bingoConfigService;
+    private MeService meService;
+
+    @Mock
+    private PresenceService presenceService;
+
+    @Mock
+    private EventsApiService eventsApiService;
 
     @Mock
     private TeamIconService teamIconService;
@@ -54,7 +62,9 @@ public class LoginDetectionTest
         // The plugin's own subscribers reach these collaborators, which Guice supplies in production.
         setField(plugin, "client", client);
         setField(plugin, "config", config);
-        setField(plugin, "bingoConfigService", bingoConfigService);
+        setField(plugin, "meService", meService);
+        setField(plugin, "presenceService", presenceService);
+        setField(plugin, "eventsApiService", eventsApiService);
         setField(plugin, "teamIconService", teamIconService);
         setField(plugin, "collectionLogHandler", collectionLogHandler);
         setField(plugin, "raidLootHandler", raidLootHandler);
@@ -83,7 +93,8 @@ public class LoginDetectionTest
 
         plugin.onGameStateChanged(event);
 
-        verify(bingoConfigService).onLogin("TestUser");
+        verify(meService).onLogin("TestUser");
+        verify(presenceService).onLogin("TestUser");
     }
 
     @Test
@@ -97,7 +108,8 @@ public class LoginDetectionTest
         UsernameChanged event = new UsernameChanged();
         plugin.onUsernameChanged(event);
 
-        verify(bingoConfigService).onLogin("TestUser");
+        verify(meService).onLogin("TestUser");
+        verify(presenceService).onLogin("TestUser");
     }
 
     @Test
@@ -114,6 +126,8 @@ public class LoginDetectionTest
 
         plugin.onConfigChanged(event);
 
-        verify(bingoConfigService).onLogin("TestUser");
+        verify(meService).onLogin("TestUser");
+        verify(presenceService).onLogin("TestUser");
+        verify(meService).refresh("TestUser");
     }
 }

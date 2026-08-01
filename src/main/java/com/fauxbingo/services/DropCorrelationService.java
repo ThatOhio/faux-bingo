@@ -14,6 +14,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -79,7 +80,7 @@ public class DropCorrelationService
 		flushAll();
 	}
 
-	/** Handlers call this instead of touching WebhookService/LogService directly. */
+	/** Handlers call this instead of touching WebhookService/EventsApiService directly. */
 	public synchronized void report(DropSignal signal)
 	{
 		if (signal == null)
@@ -223,7 +224,7 @@ public class DropCorrelationService
 
 		try
 		{
-			MergedDropEvent merged = resolve(group.signals);
+			MergedDropEvent merged = resolve(group.signals, group.dropGroupId);
 			dispatch(merged, group.signals);
 		}
 		catch (Exception e)
@@ -232,7 +233,7 @@ public class DropCorrelationService
 		}
 	}
 
-	private MergedDropEvent resolve(List<DropSignal> signals)
+	private MergedDropEvent resolve(List<DropSignal> signals, String dropGroupId)
 	{
 		DropSignal primary = pickPrimary(signals);
 
@@ -240,11 +241,10 @@ public class DropCorrelationService
 		DropSignal clogSignal = findFirst(signals, s -> s.getDetectionMethod().getType() == DropType.COLLECTION_LOG);
 
 		String petName = null;
-		String sourceNameGuess = null;
+		String sourceNameGuess = petSignal != null ? petSignal.getSourceNameGuess() : null;
 		if (petSignal != null && clogSignal != null && clogSignal.getItems() != null && !clogSignal.getItems().isEmpty())
 		{
 			petName = clogSignal.getItems().get(0).getName();
-			sourceNameGuess = petSignal.getSourceNameGuess();
 		}
 
 		Long corroboratedValue = null;
@@ -264,6 +264,7 @@ public class DropCorrelationService
 
 		return MergedDropEvent.builder()
 			.type(primary.getDetectionMethod().getType())
+			.dropGroupId(dropGroupId)
 			.primarySignal(primary)
 			.contributingSignals(new ArrayList<>(signals))
 			.petName(petName)
@@ -400,6 +401,7 @@ public class DropCorrelationService
 	private static class PendingGroup
 	{
 		private final long deadline;
+		private final String dropGroupId = UUID.randomUUID().toString();
 		private final List<DropSignal> signals = new ArrayList<>();
 
 		PendingGroup(long deadline)

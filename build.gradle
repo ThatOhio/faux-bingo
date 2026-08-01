@@ -35,6 +35,14 @@ tasks.withType(JavaCompile).configureEach {
 	options.release.set(11)
 }
 
+// Stamps the runtime resource EventsApiService reads for the envelope's pluginVersion field,
+// since RuneLite gives plugins no other way to know their own version at runtime.
+processResources {
+	filesMatching('version.properties') {
+		expand(version: project.version)
+	}
+}
+
 tasks.register('shadowJar', Jar) {
 	dependsOn configurations.testRuntimeClasspath
 	manifest {

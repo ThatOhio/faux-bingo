@@ -1,13 +1,13 @@
 package com.fauxbingo.handlers;
 
+import com.fauxbingo.services.EventsApiService;
 import com.fauxbingo.services.InteractionTrackingService;
-import com.fauxbingo.services.LogService;
-import com.fauxbingo.services.data.DeathRecord;
+import com.fauxbingo.services.data.DeathSignal;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
+import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.events.ActorDeath;
-import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Before;
 import org.junit.Test;
@@ -26,7 +26,7 @@ public class DeathHandlerTest
 	private Client client;
 
 	@Mock
-	private LogService logService;
+	private EventsApiService eventsApiService;
 
 	@Mock
 	private Player localPlayer;
@@ -38,6 +38,9 @@ public class DeathHandlerTest
 	private Player killerTarget;
 
 	@Mock
+	private NPC npcKiller;
+
+	@Mock
 	private InteractionTrackingService interactionTrackingService;
 
 	private DeathHandler deathHandler;
@@ -45,12 +48,12 @@ public class DeathHandlerTest
 	@Before
 	public void before()
 	{
-		deathHandler = new DeathHandler(client, logService, interactionTrackingService);
+		deathHandler = new DeathHandler(client, eventsApiService, interactionTrackingService);
 		when(client.getLocalPlayer()).thenReturn(localPlayer);
 	}
 
 	@Test
-	public void logsDeathWithRegionAndKiller()
+	public void submitsDeathWithRegionAndKiller()
 	{
 		WorldPoint loc = WorldPoint.fromRegion(12893, 32, 32, 0);
 		when(localPlayer.getWorldLocation()).thenReturn(loc);
@@ -61,15 +64,16 @@ public class DeathHandlerTest
 
 		deathHandler.onActorDeath(event);
 
-		ArgumentCaptor<DeathRecord> cap = ArgumentCaptor.forClass(DeathRecord.class);
-		verify(logService).log(eq("DEATH"), cap.capture());
-		DeathRecord rec = cap.getValue();
-		assertEquals(12893, rec.getRegionId());
-		assertEquals("Elvarg", rec.getKiller());
+		ArgumentCaptor<DeathSignal> cap = ArgumentCaptor.forClass(DeathSignal.class);
+		verify(eventsApiService).submitDeath(cap.capture());
+		DeathSignal signal = cap.getValue();
+		assertEquals(12893, signal.getRegionId());
+		assertEquals("Elvarg", signal.getKillerName());
+		assertEquals("UNKNOWN", signal.getKillerKind());
 	}
 
 	@Test
-	public void logsDeathWithRegionOnlyWhenNoKiller()
+	public void submitsDeathWithRegionOnlyWhenNoKiller()
 	{
 		WorldPoint loc = WorldPoint.fromRegion(13100, 16, 16, 0);
 		when(localPlayer.getWorldLocation()).thenReturn(loc);
@@ -79,11 +83,12 @@ public class DeathHandlerTest
 
 		deathHandler.onActorDeath(event);
 
-		ArgumentCaptor<DeathRecord> cap = ArgumentCaptor.forClass(DeathRecord.class);
-		verify(logService).log(eq("DEATH"), cap.capture());
-		DeathRecord rec = cap.getValue();
-		assertEquals(13100, rec.getRegionId());
-		assertNull(rec.getKiller());
+		ArgumentCaptor<DeathSignal> cap = ArgumentCaptor.forClass(DeathSignal.class);
+		verify(eventsApiService).submitDeath(cap.capture());
+		DeathSignal signal = cap.getValue();
+		assertEquals(13100, signal.getRegionId());
+		assertNull(signal.getKillerName());
+		assertEquals("UNKNOWN", signal.getKillerKind());
 	}
 
 	@Test
@@ -94,7 +99,7 @@ public class DeathHandlerTest
 
 		deathHandler.onActorDeath(event);
 
-		verify(logService, never()).log(anyString(), any());
+		verify(eventsApiService, never()).submitDeath(any());
 	}
 
 	@Test
@@ -109,8 +114,27 @@ public class DeathHandlerTest
 
 		deathHandler.onActorDeath(deathEvent);
 
-		ArgumentCaptor<DeathRecord> cap = ArgumentCaptor.forClass(DeathRecord.class);
-		verify(logService).log(eq("DEATH"), cap.capture());
-		assertEquals("Elvarg", cap.getValue().getKiller());
+		ArgumentCaptor<DeathSignal> cap = ArgumentCaptor.forClass(DeathSignal.class);
+		verify(eventsApiService).submitDeath(cap.capture());
+		assertEquals("Elvarg", cap.getValue().getKillerName());
+		assertEquals("PLAYER", cap.getValue().getKillerKind());
+	}
+
+	@Test
+	public void npcKillerReportsNpcKind()
+	{
+		WorldPoint loc = WorldPoint.fromRegion(12893, 32, 32, 0);
+		when(localPlayer.getWorldLocation()).thenReturn(loc);
+		when(localPlayer.getInteracting()).thenReturn(npcKiller);
+		when(npcKiller.getName()).thenReturn("Vorkath");
+
+		ActorDeath deathEvent = new ActorDeath(localPlayer);
+
+		deathHandler.onActorDeath(deathEvent);
+
+		ArgumentCaptor<DeathSignal> cap = ArgumentCaptor.forClass(DeathSignal.class);
+		verify(eventsApiService).submitDeath(cap.capture());
+		assertEquals("Vorkath", cap.getValue().getKillerName());
+		assertEquals("NPC", cap.getValue().getKillerKind());
 	}
 }

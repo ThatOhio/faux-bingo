@@ -1,21 +1,24 @@
 package com.fauxbingo.handlers;
 
+import com.fauxbingo.services.EventsApiService;
 import com.fauxbingo.services.InteractionTrackingService;
-import com.fauxbingo.services.LogService;
-import com.fauxbingo.services.data.DeathRecord;
+import com.fauxbingo.services.data.DeathSignal;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
+import net.runelite.api.NPC;
+import net.runelite.api.Player;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.eventbus.Subscribe;
 
 /**
- * Handles player death. Logs death to LogService (when API enabled) with region and killer if known.
- * Uses InteractionTrackingService for killer detection.
+ * Handles player death. Submits a DEATH envelope to EventsApiService (batched, per the v1
+ * contract - there's no dedicated death endpoint any more). Uses InteractionTrackingService for
+ * killer detection.
  */
 @Slf4j
 @Singleton
@@ -23,7 +26,7 @@ import net.runelite.client.eventbus.Subscribe;
 public class DeathHandler
 {
 	private final Client client;
-	private final LogService logService;
+	private final EventsApiService eventsApiService;
 	private final InteractionTrackingService interactionTrackingService;
 
 	@Subscribe
@@ -37,6 +40,7 @@ public class DeathHandler
 
 		int regionId = 0;
 		String killer = null;
+		String killerKind = "UNKNOWN";
 
 		try
 		{
@@ -62,14 +66,16 @@ public class DeathHandler
 			if (name != null && !name.isEmpty())
 			{
 				killer = name;
+				killerKind = candidate instanceof Player ? "PLAYER" : candidate instanceof NPC ? "NPC" : "UNKNOWN";
 			}
 		}
 
-		DeathRecord record = DeathRecord.builder()
+		DeathSignal signal = DeathSignal.builder()
 			.regionId(regionId)
-			.killer(killer)
+			.killerName(killer)
+			.killerKind(killerKind)
 			.build();
 
-		logService.log("DEATH", record);
+		eventsApiService.submitDeath(signal);
 	}
 }

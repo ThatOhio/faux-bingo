@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.NPC;
 import net.runelite.api.NPCComposition;
@@ -46,13 +47,15 @@ public class ServerNpcLootHandlerTest
 	private NPC npc;
 	@Mock
 	private NPCComposition npcComposition;
+	@Mock
+	private Client client;
 
 	private LootEventHandler lootEventHandler;
 
 	@Before
 	public void before()
 	{
-		lootEventHandler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService);
+		lootEventHandler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService, client);
 
 		doAnswer(inv -> {
 			((Runnable) inv.getArgument(0)).run();

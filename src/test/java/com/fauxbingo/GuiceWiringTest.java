@@ -7,12 +7,12 @@ import com.fauxbingo.handlers.ManualScreenshotHandler;
 import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
-import com.fauxbingo.services.BingoConfigService;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.EventEnvelopeSink;
+import com.fauxbingo.services.EventsApiService;
 import com.fauxbingo.services.InteractionTrackingService;
-import com.fauxbingo.services.LogService;
-import com.fauxbingo.services.LoggingEventEnvelopeSink;
+import com.fauxbingo.services.MeService;
+import com.fauxbingo.services.PresenceService;
 import com.fauxbingo.services.ScreenshotService;
 import com.fauxbingo.services.TeamIconService;
 import com.fauxbingo.services.WebhookService;
@@ -43,9 +43,10 @@ import static org.mockito.Mockito.mock;
 public class GuiceWiringTest
 {
 	private static final Class<?>[] INJECTABLES = {
-		BingoConfigService.class,
+		MeService.class,
+		PresenceService.class,
+		EventsApiService.class,
 		InteractionTrackingService.class,
-		LogService.class,
 		WebhookService.class,
 		DropCorrelationService.class,
 		ScreenshotService.class,
@@ -75,7 +76,7 @@ public class GuiceWiringTest
 			binder.bind(ScheduledExecutorService.class).toInstance(mock(ScheduledExecutorService.class));
 			binder.bind(OkHttpClient.class).toInstance(new OkHttpClient());
 			binder.bind(Gson.class).toInstance(new Gson());
-			binder.bind(EventEnvelopeSink.class).to(LoggingEventEnvelopeSink.class);
+			binder.bind(EventEnvelopeSink.class).to(EventsApiService.class);
 			binder.bind(String.class)
 				.annotatedWith(Names.named(FauxBingoPlugin.API_BASE_URL_KEY))
 				.toInstance("http://api");
@@ -87,7 +88,7 @@ public class GuiceWiringTest
 		}
 	}
 
-	/** Singleton scoping matters: the plugin and the handlers must share one LogService queue. */
+	/** Singleton scoping matters: the plugin and the handlers must share one EventsApiService queue. */
 	@Test
 	public void servicesAreSingletons()
 	{
@@ -98,14 +99,14 @@ public class GuiceWiringTest
 			binder.bind(ConfigManager.class).toInstance(mock(ConfigManager.class));
 			binder.bind(OkHttpClient.class).toInstance(new OkHttpClient());
 			binder.bind(Gson.class).toInstance(new Gson());
-			binder.bind(EventEnvelopeSink.class).to(LoggingEventEnvelopeSink.class);
+			binder.bind(EventEnvelopeSink.class).to(EventsApiService.class);
 			binder.bind(String.class)
 				.annotatedWith(Names.named(FauxBingoPlugin.API_BASE_URL_KEY))
 				.toInstance("http://api");
 		});
 
-		assertSame(injector.getInstance(LogService.class), injector.getInstance(LogService.class));
-		assertSame(injector.getInstance(BingoConfigService.class), injector.getInstance(BingoConfigService.class));
+		assertSame(injector.getInstance(EventsApiService.class), injector.getInstance(EventsApiService.class));
+		assertSame(injector.getInstance(MeService.class), injector.getInstance(MeService.class));
 		assertSame(injector.getInstance(DropCorrelationService.class), injector.getInstance(DropCorrelationService.class));
 	}
 }

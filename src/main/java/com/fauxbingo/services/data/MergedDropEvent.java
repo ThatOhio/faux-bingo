@@ -15,6 +15,8 @@ import lombok.Data;
 public class MergedDropEvent
 {
 	private DropType type;
+	/** Correlates every signal in this group. New per physical drop, per DropCorrelationService. */
+	private String dropGroupId;
 	private DropSignal primarySignal;
 	private List<DropSignal> contributingSignals;
 	/** Only set when a PET signal was corroborated by a COLLECTION_LOG signal in the same group. */

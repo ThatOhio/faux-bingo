@@ -5,8 +5,8 @@ import lombok.Data;
 
 @Data
 @Builder
-public class DeathRecord
+public class CollectionLogPayloadDto
 {
-	private int regionId;
-	private String killer;
+	private String entryName;
+	private Integer itemId;
 }

@@ -19,7 +19,9 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
 import net.runelite.api.NPCComposition;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
@@ -81,19 +83,21 @@ public class LootEventHandler
 	private final ScreenshotService screenshotService;
 	private final ScheduledExecutorService executor;
 	private final DropCorrelationService dropCorrelationService;
+	private final Client client;
 
 	@Subscribe
 	public void onNpcLootReceived(NpcLootReceived event)
 	{
 		Integer npcId = event.getNpc() != null ? event.getNpc().getId() : null;
-		processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN, npcId);
+		Integer combatLevel = event.getNpc() != null ? event.getNpc().getCombatLevel() : null;
+		processNpcLoot(event.getNpc().getName(), event.getItems(), NpcLootSignal.TILE_SCAN, npcId, combatLevel);
 	}
 
 	@Subscribe
 	public void onPlayerLootReceived(PlayerLootReceived event)
 	{
 		processLoot(event.getPlayer().getName(), event.getItems(), SourceKind.PLAYER,
-			DetectionMethod.PLAYER_LOOT_RECEIVED, null);
+			DetectionMethod.PLAYER_LOOT_RECEIVED, null, null);
 	}
 
 	/**
@@ -106,7 +110,8 @@ public class LootEventHandler
 	{
 		NPCComposition npc = event.getComposition();
 		Integer npcId = npc != null ? npc.getId() : null;
-		processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER, npcId);
+		Integer combatLevel = npc != null ? npc.getCombatLevel() : null;
+		processNpcLoot(npc != null ? npc.getName() : null, event.getItems(), NpcLootSignal.SERVER, npcId, combatLevel);
 	}
 
 	/**
@@ -114,7 +119,7 @@ public class LootEventHandler
 	 * off against it. Pairing consumes a single entry rather than suppressing everything with a
 	 * matching key, so back to back kills of the same NPC with identical loot still report once each.
 	 */
-	private void processNpcLoot(String source, Collection<ItemStack> items, NpcLootSignal signal, Integer npcId)
+	private void processNpcLoot(String source, Collection<ItemStack> items, NpcLootSignal signal, Integer npcId, Integer combatLevel)
 	{
 		if (items == null || items.isEmpty())
 		{
@@ -140,7 +145,7 @@ public class LootEventHandler
 		DetectionMethod method = signal == NpcLootSignal.TILE_SCAN
 			? DetectionMethod.NPC_LOOT_RECEIVED
 			: DetectionMethod.SERVER_NPC_LOOT;
-		processLoot(source, items, SourceKind.NPC, method, npcId);
+		processLoot(source, items, SourceKind.NPC, method, npcId, combatLevel);
 	}
 
 	private void dropStaleKills(long now)
@@ -183,11 +188,11 @@ public class LootEventHandler
 			return;
 		}
 
-		processLoot(event.getName(), items, SourceKind.OTHER, DetectionMethod.LOOT_TRACKER_EVENT, null);
+		processLoot(event.getName(), items, SourceKind.OTHER, DetectionMethod.LOOT_TRACKER_EVENT, null, null);
 	}
 
 	private void processLoot(String source, Collection<ItemStack> items, SourceKind sourceKind,
-		DetectionMethod method, Integer npcId)
+		DetectionMethod method, Integer npcId, Integer combatLevel)
 	{
 		long totalValue = 0;
 		Map<String, Integer> quantityByName = new LinkedHashMap<>();
@@ -225,6 +230,12 @@ public class LootEventHandler
 			source, lootString.toString(), totalValue);
 		long finalTotalValue = totalValue;
 
+		// Read now, not from inside the async screenshot callback, so it reflects where the drop
+		// actually happened rather than wherever the player has walked to by the time it fires.
+		WorldPoint location = client.getLocalPlayer() != null ? client.getLocalPlayer().getWorldLocation() : null;
+		Integer regionId = location != null ? location.getRegionID() : null;
+		Integer plane = location != null ? location.getPlane() : null;
+
 		// Captured immediately regardless of value, DropCorrelationService may still merge this
 		// into a group that crosses the notify threshold once a corroborating signal lands.
 		screenshotService.requestScreenshot(image -> executor.execute(() -> {
@@ -233,6 +244,9 @@ public class LootEventHandler
 				.sourceKind(sourceKind)
 				.sourceName(source)
 				.npcId(npcId)
+				.combatLevel(combatLevel)
+				.regionId(regionId)
+				.plane(plane)
 				.items(dropItems)
 				.totalValueGe(finalTotalValue)
 				.webhookMessage(message)

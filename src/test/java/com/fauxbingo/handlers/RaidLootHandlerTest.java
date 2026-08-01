@@ -12,6 +12,7 @@ import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.client.game.ItemManager;
@@ -63,6 +64,7 @@ public class RaidLootHandlerTest
 		raidLootHandler = new RaidLootHandler(client, config, screenshotService, executor, itemManager, dropCorrelationService);
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(player.getName()).thenReturn("TestPlayer");
+		when(player.getWorldLocation()).thenReturn(WorldPoint.fromRegion(12889, 32, 32, 0));
 		when(config.includeRaidLoot()).thenReturn(true);
 
 		doAnswer(invocation -> {
@@ -112,6 +114,8 @@ public class RaidLootHandlerTest
 		org.junit.Assert.assertEquals(DetectionMethod.RAID_CHEST_CONTAINER, signal.getDetectionMethod());
 		org.junit.Assert.assertTrue(signal.isAlwaysNotify());
 		org.junit.Assert.assertEquals(Integer.valueOf(100), signal.getKillCount());
+		org.junit.Assert.assertEquals("COX", signal.getVariant());
+		org.junit.Assert.assertEquals(Integer.valueOf(12889), signal.getRegionId());
 		String message = signal.getWebhookMessage();
 		org.junit.Assert.assertTrue(message.contains("Twisted bow"));
 		org.junit.Assert.assertTrue(message.contains("Kill Count: **100**"));

@@ -6,6 +6,7 @@ import com.fauxbingo.services.data.DetectionMethod;
 import com.fauxbingo.services.data.DropSignal;
 import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
+import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
@@ -41,12 +42,15 @@ public class EventLootHandlerTest
 	@Mock
 	private DropCorrelationService dropCorrelationService;
 
+	@Mock
+	private Client client;
+
 	private LootEventHandler handler;
 
 	@Before
 	public void before()
 	{
-		handler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService);
+		handler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService, client);
 
 		doAnswer(inv -> {
 			((Runnable) inv.getArgument(0)).run();

@@ -2,10 +2,12 @@ package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
 import com.fauxbingo.FauxBingoPlugin;
+import com.fauxbingo.services.data.TeamAccountDto;
+import com.fauxbingo.services.data.TeamPlayerDto;
+import com.fauxbingo.services.data.TeamRosterDto;
+import com.fauxbingo.services.data.TeamsResponseDto;
 import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -30,27 +32,15 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Service for fetching and displaying team icons in chat.
+ * Fetches the full team roster from GET /v1/teams and badges clan chat names with their team's
+ * icon. Matching is on accounts[].displayName (the RSN) - players[].memberName is a Discord
+ * nickname and must never be matched against an RSN (docs/v1-api.md, GET /v1/teams).
  */
 @Slf4j
 @Singleton
 public class TeamIconService
 {
-	private static class TeamIconDto
-	{
-		@SerializedName("teamName")
-		String teamName;
-		@SerializedName("teamIcon")
-		String teamIcon;
-	}
-
-	private static class PlayerTeamDto
-	{
-		@SerializedName("character")
-		String character;
-		@SerializedName("teamName")
-		String teamName;
-	}
+	private static final String TEAMS_PATH = "/v1/teams";
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -60,9 +50,9 @@ public class TeamIconService
 	private final ScheduledExecutorService executor;
 	private final ClientThread clientThread;
 
-	private final Map<String, String> playerToTeam = new HashMap<>();       // lowercase+trimmed character name -> team name
-	private final Map<String, Integer> teamToSpriteIndex = new HashMap<>(); // team name -> mod icon array index
-	private final Map<String, String> teamToIconUrl = new HashMap<>();      // team name -> registered URL (change detection + deduplication)
+	private final Map<String, String> rsnToTeamId = new HashMap<>();     // lowercase+trimmed RSN -> team id
+	private final Map<String, Integer> teamToSpriteIndex = new HashMap<>(); // team id -> mod icon array index
+	private final Map<String, String> teamToIconUrl = new HashMap<>();      // team id -> registered URL (change detection + deduplication)
 	private int iconsRegisteredCount = 0;
 	private volatile int initialModIconsLength = -1;                        // captured on client thread before first fetch
 	private ScheduledFuture<?> refreshTask = null;
@@ -80,7 +70,7 @@ public class TeamIconService
 	{
 		this.client = client;
 		this.config = config;
-		this.apiBaseUrl = apiBaseUrl;
+		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 		this.executor = executor;
@@ -102,105 +92,36 @@ public class TeamIconService
 
 	private void fetchTeamData()
 	{
-		if (!config.enableBingoApi())
+		if (!enabled())
 		{
 			return;
 		}
 
 		try
 		{
-			// 1. Fetch teamIcons endpoint
-			Request teamIconsRequest = new Request.Builder()
-				.url(apiBaseUrl + "/api/BingoConfig/teamIcons")
+			Request request = new Request.Builder()
+				.url(apiBaseUrl.replaceAll("/$", "") + TEAMS_PATH)
+				.header("Authorization", "Bearer " + config.apiToken().trim())
 				.build();
-			List<TeamIconDto> teamIcons;
-			try (Response response = okHttpClient.newCall(teamIconsRequest).execute())
+
+			TeamsResponseDto parsed;
+			try (Response response = okHttpClient.newCall(request).execute())
 			{
 				if (!response.isSuccessful() || response.body() == null)
 				{
-					log.debug("Failed to fetch team icons: {}", response);
+					log.debug("Failed to fetch /v1/teams: {}", response);
 					return;
 				}
-				teamIcons = Arrays.asList(gson.fromJson(response.body().charStream(), TeamIconDto[].class));
+				parsed = gson.fromJson(response.body().charStream(), TeamsResponseDto.class);
 			}
 
-			// 2. Fetch teams endpoint
-			Request teamsRequest = new Request.Builder()
-				.url(apiBaseUrl + "/api/BingoConfig/teams")
-				.build();
-			List<PlayerTeamDto> playerTeams;
-			try (Response response = okHttpClient.newCall(teamsRequest).execute())
+			if (parsed == null || parsed.getTeams() == null)
 			{
-				if (!response.isSuccessful() || response.body() == null)
-				{
-					log.debug("Failed to fetch player teams: {}", response);
-					return;
-				}
-				playerTeams = Arrays.asList(gson.fromJson(response.body().charStream(), PlayerTeamDto[].class));
+				return;
 			}
 
-			// 3. Update playerToTeam
-			synchronized (playerToTeam)
-			{
-				playerToTeam.clear();
-				for (PlayerTeamDto dto : playerTeams)
-				{
-					if (dto.character != null && dto.teamName != null)
-					{
-						playerToTeam.put(dto.character.trim().toLowerCase(), dto.teamName);
-					}
-				}
-			}
-
-			// 4. Update teamIcons
-			for (TeamIconDto dto : teamIcons)
-			{
-				String teamName = dto.teamName;
-				String url = dto.teamIcon;
-
-				if (teamName == null || url == null)
-				{
-					continue;
-				}
-
-				if (url.equals(teamToIconUrl.get(teamName)))
-				{
-					continue;
-				}
-
-				// Check if another team already has the same URL registered
-				String existingTeamWithSameUrl = null;
-				synchronized (teamToIconUrl)
-				{
-					for (Map.Entry<String, String> entry : teamToIconUrl.entrySet())
-					{
-						if (url.equals(entry.getValue()))
-						{
-							existingTeamWithSameUrl = entry.getKey();
-							break;
-						}
-					}
-				}
-
-				if (existingTeamWithSameUrl != null)
-				{
-					synchronized (teamToSpriteIndex)
-					{
-						Integer existingIndex = teamToSpriteIndex.get(existingTeamWithSameUrl);
-						if (existingIndex != null)
-						{
-							teamToSpriteIndex.put(teamName, existingIndex);
-							synchronized (teamToIconUrl)
-							{
-								teamToIconUrl.put(teamName, url);
-							}
-							continue;
-						}
-					}
-				}
-
-				downloadAndRegisterIcon(teamName, url);
-			}
+			updateRsnMap(parsed.getTeams());
+			updateIcons(parsed.getTeams());
 		}
 		catch (Exception e)
 		{
@@ -208,21 +129,103 @@ public class TeamIconService
 		}
 	}
 
-	private void downloadAndRegisterIcon(String teamName, String url)
+	private void updateRsnMap(List<TeamRosterDto> teams)
+	{
+		synchronized (rsnToTeamId)
+		{
+			rsnToTeamId.clear();
+			for (TeamRosterDto team : teams)
+			{
+				if (team.getId() == null || team.getPlayers() == null)
+				{
+					continue;
+				}
+				for (TeamPlayerDto player : team.getPlayers())
+				{
+					if (player.getAccounts() == null)
+					{
+						continue;
+					}
+					for (TeamAccountDto account : player.getAccounts())
+					{
+						if (account.getDisplayName() == null)
+						{
+							continue;
+						}
+						rsnToTeamId.put(account.getDisplayName().trim().toLowerCase(), team.getId());
+					}
+				}
+			}
+		}
+	}
+
+	private void updateIcons(List<TeamRosterDto> teams)
+	{
+		for (TeamRosterDto team : teams)
+		{
+			String teamId = team.getId();
+			String url = team.getIconUrl();
+
+			if (teamId == null || url == null)
+			{
+				continue;
+			}
+
+			if (url.equals(teamToIconUrl.get(teamId)))
+			{
+				continue;
+			}
+
+			// Check if another team already has the same URL registered
+			String existingTeamWithSameUrl = null;
+			synchronized (teamToIconUrl)
+			{
+				for (Map.Entry<String, String> entry : teamToIconUrl.entrySet())
+				{
+					if (url.equals(entry.getValue()))
+					{
+						existingTeamWithSameUrl = entry.getKey();
+						break;
+					}
+				}
+			}
+
+			if (existingTeamWithSameUrl != null)
+			{
+				synchronized (teamToSpriteIndex)
+				{
+					Integer existingIndex = teamToSpriteIndex.get(existingTeamWithSameUrl);
+					if (existingIndex != null)
+					{
+						teamToSpriteIndex.put(teamId, existingIndex);
+						synchronized (teamToIconUrl)
+						{
+							teamToIconUrl.put(teamId, url);
+						}
+						continue;
+					}
+				}
+			}
+
+			downloadAndRegisterIcon(teamId, url);
+		}
+	}
+
+	private void downloadAndRegisterIcon(String teamId, String url)
 	{
 		Request request = new Request.Builder().url(url).build();
 		try (Response response = okHttpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)
 			{
-				log.debug("Failed to download icon for team {}: {}", teamName, response);
+				log.debug("Failed to download icon for team {}: {}", teamId, response);
 				return;
 			}
 
 			BufferedImage image = ImageIO.read(response.body().byteStream());
 			if (image == null)
 			{
-				log.debug("Failed to decode icon for team {}", teamName);
+				log.debug("Failed to decode icon for team {}", teamId);
 				return;
 			}
 
@@ -237,24 +240,24 @@ public class TeamIconService
 
 				synchronized (teamToSpriteIndex)
 				{
-					teamToSpriteIndex.put(teamName, current.length);
+					teamToSpriteIndex.put(teamId, current.length);
 				}
 				synchronized (teamToIconUrl)
 				{
-					teamToIconUrl.put(teamName, url);
+					teamToIconUrl.put(teamId, url);
 				}
 			});
 		}
 		catch (Exception e)
 		{
-			log.debug("Error registering icon for team " + teamName, e);
+			log.debug("Error registering icon for team " + teamId, e);
 		}
 	}
 
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
-		if (!config.enableBingoApi() || !config.showTeamIconsInChat())
+		if (!enabled() || !config.showTeamIconsInChat())
 		{
 			return;
 		}
@@ -266,13 +269,13 @@ public class TeamIconService
 		}
 
 		String sanitizedName = Text.removeTags(name).trim().toLowerCase();
-		String teamName;
-		synchronized (playerToTeam)
+		String teamId;
+		synchronized (rsnToTeamId)
 		{
-			teamName = playerToTeam.get(sanitizedName);
+			teamId = rsnToTeamId.get(sanitizedName);
 		}
 
-		if (teamName == null)
+		if (teamId == null)
 		{
 			return;
 		}
@@ -280,7 +283,7 @@ public class TeamIconService
 		Integer index;
 		synchronized (teamToSpriteIndex)
 		{
-			index = teamToSpriteIndex.get(teamName);
+			index = teamToSpriteIndex.get(teamId);
 		}
 
 		if (index == null)
@@ -323,9 +326,9 @@ public class TeamIconService
 		iconsRegisteredCount = 0;
 		initialModIconsLength = -1;
 
-		synchronized (playerToTeam)
+		synchronized (rsnToTeamId)
 		{
-			playerToTeam.clear();
+			rsnToTeamId.clear();
 		}
 		synchronized (teamToSpriteIndex)
 		{
@@ -335,5 +338,10 @@ public class TeamIconService
 		{
 			teamToIconUrl.clear();
 		}
+	}
+
+	private boolean enabled()
+	{
+		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.isEmpty();
 	}
 }

@@ -6,9 +6,11 @@ import com.fauxbingo.services.data.DetectionMethod;
 import com.fauxbingo.services.data.DropSignal;
 import java.util.Arrays;
 import java.util.concurrent.ScheduledExecutorService;
+import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
@@ -40,6 +42,9 @@ public class LootEventHandlerTest
 	private DropCorrelationService dropCorrelationService;
 
 	@Mock
+	private Client client;
+
+	@Mock
 	private NPC npc;
 
 	@Mock
@@ -48,12 +53,17 @@ public class LootEventHandlerTest
 	@Mock
 	private ItemComposition itemComposition;
 
+	@Mock
+	private Player localPlayer;
+
 	private LootEventHandler lootEventHandler;
 
 	@Before
 	public void before()
 	{
-		lootEventHandler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService);
+		lootEventHandler = new LootEventHandler(itemManager, screenshotService, executor, dropCorrelationService, client);
+		when(client.getLocalPlayer()).thenReturn(localPlayer);
+		when(localPlayer.getWorldLocation()).thenReturn(WorldPoint.fromRegion(9007, 12, 12, 0));
 
 		// Run executor tasks inline
 		doAnswer(invocation -> {
@@ -79,6 +89,7 @@ public class LootEventHandlerTest
 	{
 		when(npc.getName()).thenReturn("Vorkath");
 		when(npc.getId()).thenReturn(8061);
+		when(npc.getCombatLevel()).thenReturn(732);
 		ItemStack item = new ItemStack(536, 400, null); // 400 * 2500 = 1,000,000
 		NpcLootReceived event = new NpcLootReceived(npc, Arrays.asList(item));
 
@@ -90,6 +101,8 @@ public class LootEventHandlerTest
 		org.junit.Assert.assertEquals(DetectionMethod.NPC_LOOT_RECEIVED, signal.getDetectionMethod());
 		org.junit.Assert.assertEquals("Vorkath", signal.getSourceName());
 		org.junit.Assert.assertEquals(Integer.valueOf(8061), signal.getNpcId());
+		org.junit.Assert.assertEquals(Integer.valueOf(732), signal.getCombatLevel());
+		org.junit.Assert.assertEquals(Integer.valueOf(9007), signal.getRegionId());
 		org.junit.Assert.assertEquals(1_000_000L, signal.getTotalValueGe().longValue());
 		org.junit.Assert.assertTrue(signal.getWebhookMessage().contains("Vorkath"));
 	}

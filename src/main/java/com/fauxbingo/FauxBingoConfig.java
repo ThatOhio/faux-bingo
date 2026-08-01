@@ -36,8 +36,8 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 			keyName = "enableBingoApi",
 			name = "Enable Bingo API",
-			description = "Enables the bingo API for fetching bingo configuration and logging bingo statistics.",
-			warning = "This feature will submit your character name and IP address to a 3rd-party server not controlled or verified by Runelite developers. Data is used for bingo config and tile verification only.",
+			description = "Enables the bingo API for team lookup, presence heartbeat, and reporting drops/deaths.",
+			warning = "This feature will submit your character name, account info, and drop/death data to a 3rd-party server not controlled or verified by Runelite developers.",
 			position = 1,
 			section = apiSection
 	)
@@ -47,10 +47,22 @@ public interface FauxBingoConfig extends Config
 	}
 
 	@ConfigItem(
+			keyName = "apiToken",
+			name = "API Token",
+			description = "Your player token from the bingo website, sent as a Bearer token to authenticate with the API.",
+			position = 2,
+			section = apiSection
+	)
+	default String apiToken()
+	{
+		return "";
+	}
+
+	@ConfigItem(
 			keyName = "enableWomAutoUpdate",
 			name = "Enable WOM Auto-Update",
 			description = "Automatically update your WiseOldMan stats on logout or when gaining 10k+ XP",
-			position = 2,
+			position = 3,
 			section = apiSection
 	)
 	default boolean enableWomAutoUpdate()
@@ -62,7 +74,7 @@ public interface FauxBingoConfig extends Config
 			keyName = "showTeamIconsInChat",
 			name = "Show Team Icons in Chat",
 			description = "Displays a team icon before player names in chat for active bingo event participants. Requires Bingo API to be enabled.",
-			position = 3,
+			position = 4,
 			section = apiSection
 	)
 	default boolean showTeamIconsInChat()

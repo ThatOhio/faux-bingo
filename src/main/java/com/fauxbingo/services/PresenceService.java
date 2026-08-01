@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
+import net.runelite.client.callback.ClientThread;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
@@ -39,6 +40,7 @@ public class PresenceService
 	private static final long HEARTBEAT_INTERVAL_MINS = 5;
 
 	private final Client client;
+	private final ClientThread clientThread;
 	private final FauxBingoConfig config;
 	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
@@ -48,11 +50,12 @@ public class PresenceService
 	private ScheduledFuture<?> heartbeatTask = null;
 
 	@Inject
-	public PresenceService(Client client, FauxBingoConfig config,
+	public PresenceService(Client client, ClientThread clientThread, FauxBingoConfig config,
 		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient,
 		Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
+		this.clientThread = clientThread;
 		this.config = config;
 		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
@@ -86,24 +89,34 @@ public class PresenceService
 
 	private void sendIfLoggedIn()
 	{
-		if (!enabled() || client.getGameState() != GameState.LOGGED_IN)
+		if (!enabled())
 		{
 			return;
 		}
 
-		Player local = client.getLocalPlayer();
-		if (local == null || local.getName() == null || local.getName().isEmpty())
-		{
-			return;
-		}
+		// The scheduled heartbeat runs on the executor thread, not the client thread, and
+		// getAccountType() reads a varbit under the hood, which asserts client-thread-only.
+		// invoke() runs inline if we're already on the client thread (the onLogin path).
+		clientThread.invoke(() -> {
+			if (client.getGameState() != GameState.LOGGED_IN)
+			{
+				return;
+			}
 
-		SeenRequestDto body = SeenRequestDto.builder()
-			.accountHash(String.valueOf(client.getAccountHash()))
-			.displayName(local.getName())
-			.accountType(client.getAccountType() != null ? client.getAccountType().name() : "UNKNOWN")
-			.build();
+			Player local = client.getLocalPlayer();
+			if (local == null || local.getName() == null || local.getName().isEmpty())
+			{
+				return;
+			}
 
-		send(body);
+			SeenRequestDto body = SeenRequestDto.builder()
+				.accountHash(String.valueOf(client.getAccountHash()))
+				.displayName(local.getName())
+				.accountType(client.getAccountType() != null ? client.getAccountType().name() : "UNKNOWN")
+				.build();
+
+			send(body);
+		});
 	}
 
 	private void send(SeenRequestDto body)
@@ -139,6 +152,10 @@ public class PresenceService
 					else if (!response.isSuccessful())
 					{
 						log.debug("POST /v1/seen returned {}: {}", response.code(), response.message());
+					}
+					else
+					{
+						log.info("POST /v1/seen ok for {}", body.getDisplayName());
 					}
 				}
 				finally

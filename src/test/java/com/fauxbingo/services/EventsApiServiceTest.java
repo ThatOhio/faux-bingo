@@ -22,6 +22,7 @@ import net.runelite.api.Client;
 import net.runelite.api.Player;
 import net.runelite.api.WorldType;
 import net.runelite.api.vars.AccountType;
+import net.runelite.client.callback.ClientThread;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
@@ -49,6 +50,9 @@ public class EventsApiServiceTest
 {
 	@Mock
 	private Client client;
+
+	@Mock
+	private ClientThread clientThread;
 
 	@Mock
 	private FauxBingoConfig config;
@@ -83,7 +87,12 @@ public class EventsApiServiceTest
 			return null;
 		}).when(executor).schedule(any(Runnable.class), anyLong(), any(java.util.concurrent.TimeUnit.class));
 
-		service = new EventsApiService(client, config, "http://api", okHttpClient, gson, executor);
+		doAnswer(inv -> {
+			((Runnable) inv.getArgument(0)).run();
+			return null;
+		}).when(clientThread).invoke(any(Runnable.class));
+
+		service = new EventsApiService(client, clientThread, config, "http://api", okHttpClient, gson, executor);
 	}
 
 	private Response response(int code, String body)

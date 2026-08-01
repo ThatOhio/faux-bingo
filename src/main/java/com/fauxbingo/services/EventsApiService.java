@@ -35,6 +35,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
@@ -44,6 +45,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Player;
 import net.runelite.api.WorldType;
+import net.runelite.client.callback.ClientThread;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -76,6 +78,7 @@ public class EventsApiService implements EventEnvelopeSink
 	private static final long SCREENSHOT_TTL_MS = 60_000;
 
 	private final Client client;
+	private final ClientThread clientThread;
 	private final FauxBingoConfig config;
 	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
@@ -91,11 +94,12 @@ public class EventsApiService implements EventEnvelopeSink
 	private ScheduledFuture<?> screenshotSweepTask = null;
 
 	@Inject
-	public EventsApiService(Client client, FauxBingoConfig config,
+	public EventsApiService(Client client, ClientThread clientThread, FauxBingoConfig config,
 		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient,
 		Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
+		this.clientThread = clientThread;
 		this.config = config;
 		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
@@ -331,23 +335,33 @@ public class EventsApiService implements EventEnvelopeSink
 			.build();
 	}
 
+	/**
+	 * Dispatch (sweep/flush) happens on the executor thread, not the client thread, and
+	 * getAccountType() reads a varbit under the hood, which asserts client-thread-only. invoke()
+	 * runs inline if we're already on the client thread (the DEATH/submitDeath path), otherwise
+	 * blocks this thread until the client thread picks it up.
+	 */
 	private ActorDto buildActor()
 	{
-		Player local = client.getLocalPlayer();
-		if (local == null || local.getName() == null || local.getName().isEmpty())
-		{
-			return null;
-		}
+		AtomicReference<ActorDto> holder = new AtomicReference<>();
+		clientThread.invoke(() -> {
+			Player local = client.getLocalPlayer();
+			if (local == null || local.getName() == null || local.getName().isEmpty())
+			{
+				return;
+			}
 
-		List<String> worldTypes = client.getWorldType().stream().map(WorldType::name).collect(Collectors.toList());
+			List<String> worldTypes = client.getWorldType().stream().map(WorldType::name).collect(Collectors.toList());
 
-		return ActorDto.builder()
-			.accountHash(String.valueOf(client.getAccountHash()))
-			.displayName(local.getName())
-			.accountType(client.getAccountType() != null ? client.getAccountType().name() : "UNKNOWN")
-			.world(client.getWorld())
-			.worldTypes(worldTypes)
-			.build();
+			holder.set(ActorDto.builder()
+				.accountHash(String.valueOf(client.getAccountHash()))
+				.displayName(local.getName())
+				.accountType(client.getAccountType() != null ? client.getAccountType().name() : "UNKNOWN")
+				.world(client.getWorld())
+				.worldTypes(worldTypes)
+				.build());
+		});
+		return holder.get();
 	}
 
 	private void sendBatch(List<EventEnvelopeDto> envelopes, long nextRetryDelayMs)

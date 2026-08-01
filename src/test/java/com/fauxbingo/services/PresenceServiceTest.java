@@ -7,6 +7,7 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.vars.AccountType;
+import net.runelite.client.callback.ClientThread;
 import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -27,6 +28,9 @@ public class PresenceServiceTest
 {
 	@Mock
 	private Client client;
+
+	@Mock
+	private ClientThread clientThread;
 
 	@Mock
 	private FauxBingoConfig config;
@@ -51,7 +55,11 @@ public class PresenceServiceTest
 		when(config.enableBingoApi()).thenReturn(true);
 		when(config.apiToken()).thenReturn("token123");
 		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
-		presenceService = new PresenceService(client, config, "http://api", okHttpClient, new Gson(), executor);
+		doAnswer(inv -> {
+			((Runnable) inv.getArgument(0)).run();
+			return null;
+		}).when(clientThread).invoke(any(Runnable.class));
+		presenceService = new PresenceService(client, clientThread, config, "http://api", okHttpClient, new Gson(), executor);
 	}
 
 	@Test

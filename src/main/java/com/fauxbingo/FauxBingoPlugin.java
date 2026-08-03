@@ -48,8 +48,8 @@ public class FauxBingoPlugin extends Plugin
 	/** Guice binding name for the bingo API base URL. */
 	public static final String API_BASE_URL_KEY = "fauxBingoApiBaseUrl";
 
-	/** Base URL for the v1 bingo API (me, teams, seen, events). Not configurable, the player token is. */
-	private static final String BINGO_API_BASE_URL = "https://fauxbingo.com";
+	/** Fallback for the v1 bingo API (me, teams, seen, events) if the config value is ever blank. */
+	private static final String DEFAULT_BINGO_API_BASE_URL = "https://fauxbingo.com";
 
 	private static final String LOOT_TRACKER_PLUGIN_NAME = "Loot Tracker";
 
@@ -297,11 +297,17 @@ public class FauxBingoPlugin extends Plugin
 		return configManager.getConfig(FauxBingoConfig.class);
 	}
 
+	/**
+	 * Resolved once when the plugin starts up (Guice creates a fresh injector each time it's
+	 * enabled), so a config change to this value takes effect on the next plugin restart
+	 * (toggle off/on) rather than live like apiToken.
+	 */
 	@Provides
 	@Named(API_BASE_URL_KEY)
-	String provideApiBaseUrl()
+	String provideApiBaseUrl(FauxBingoConfig config)
 	{
-		return BINGO_API_BASE_URL;
+		String configured = config.apiBaseUrl() != null ? config.apiBaseUrl().trim() : "";
+		return !configured.isEmpty() ? configured : DEFAULT_BINGO_API_BASE_URL;
 	}
 
 	@Provides

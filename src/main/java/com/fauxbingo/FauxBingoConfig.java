@@ -30,6 +30,14 @@ public interface FauxBingoConfig extends Config
 	)
 	String screenshotsSection = "screenshots";
 
+	@ConfigSection(
+		name = "Advanced",
+		description = "Developer/advanced settings. Most users should never need these.",
+		position = 3,
+		closedByDefault = true
+	)
+	String advancedSection = "advanced";
+
 	// ========== API Configuration ==========
 
 	@ConfigItem(
@@ -48,7 +56,7 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 			keyName = "apiToken",
 			name = "API Token",
-			description = "Your player token from the bingo website, sent as a Bearer token to authenticate with the API.",
+			description = "Your player token from the bingo website, sent to authenticate with the API.",
 			position = 2,
 			section = apiSection
 	)
@@ -168,5 +176,19 @@ public interface FauxBingoConfig extends Config
 	default boolean screenshotHideChat()
 	{
 		return false;
+	}
+
+	// ========== Advanced Configuration ==========
+
+	@ConfigItem(
+			keyName = "apiBaseUrl",
+			name = "API Base URL",
+			description = "Base URL for the bingo API. Only change this for local testing against a dev server; leave default for normal use. Takes effect after re-enabling the plugin.",
+			position = 1,
+			section = advancedSection
+	)
+	default String apiBaseUrl()
+	{
+		return "https://fauxbingo.com";
 	}
 }

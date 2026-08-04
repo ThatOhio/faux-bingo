@@ -6,9 +6,11 @@ import java.util.Properties;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Reads the pluginVersion stamped into version.properties at build time (see build.gradle's
- * processResources), for the events envelope's pluginVersion field. RuneLite gives plugins no
- * other way to learn their own version at runtime.
+ * Reads the pluginVersion out of version.properties
+ *
+ * version.properties holds a plain, manually-bumped literal.
+ * Bump the value in version.properties directly whenever a code change to the API integration
+ * (envelope shape, EventsApiService, payload DTOs, etc.) warrants reporting a new version.
  */
 @Slf4j
 final class PluginVersion

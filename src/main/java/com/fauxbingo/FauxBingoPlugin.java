@@ -28,6 +28,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.UsernameChanged;
+import net.runelite.api.events.WorldChanged;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
@@ -230,6 +231,12 @@ public class FauxBingoPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onWorldChanged(WorldChanged event)
+	{
+		eventsApiService.onWorldChanged();
+	}
+
+	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		checkLogin();
@@ -286,6 +293,7 @@ public class FauxBingoPlugin extends Plugin
 			{
 				meService.onLogin(name);
 				presenceService.onLogin(name);
+				eventsApiService.onLogin(name);
 				loginTriggered = true;
 			}
 		}

@@ -30,7 +30,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
@@ -38,9 +37,7 @@ import javax.inject.Named;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.Player;
 import net.runelite.api.WorldType;
-import net.runelite.client.callback.ClientThread;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -78,7 +75,6 @@ public class EventsApiService implements EventEnvelopeSink
 	private static final int DEATH_BATCH_MAX_SIZE = 50;
 
 	private final Client client;
-	private final ClientThread clientThread;
 	private final FauxBingoConfig config;
 	private final String apiBaseUrl;
 	private final OkHttpClient okHttpClient;
@@ -88,16 +84,16 @@ public class EventsApiService implements EventEnvelopeSink
 	private final AtomicInteger sequence = new AtomicInteger(0);
 	private final List<EventEnvelopeDto> deathQueue = new ArrayList<>();
 	private volatile long deathQueueOpenedAtMs = 0;
+	private volatile ActorDto currentActor = null;
 
 	private ScheduledFuture<?> deathFlushTask = null;
 
 	@Inject
-	public EventsApiService(Client client, ClientThread clientThread, FauxBingoConfig config,
+	public EventsApiService(Client client, FauxBingoConfig config,
 		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient,
 		Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
-		this.clientThread = clientThread;
 		this.config = config;
 		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
 		this.okHttpClient = okHttpClient;
@@ -123,10 +119,11 @@ public class EventsApiService implements EventEnvelopeSink
 		flushDeathQueueNow();
 	}
 
-	/** New login/username change: sequence starts back at 0 for the new session. */
+	/** New login/username change: sequence starts back at 0 and the cached actor is dropped. */
 	public void resetSession()
 	{
 		sequence.set(0);
+		currentActor = null;
 	}
 
 	@Override
@@ -137,7 +134,7 @@ public class EventsApiService implements EventEnvelopeSink
 			return;
 		}
 
-		ActorDto actor = buildActor();
+		ActorDto actor = currentActor;
 		if (actor == null)
 		{
 			return;
@@ -191,7 +188,7 @@ public class EventsApiService implements EventEnvelopeSink
 			return;
 		}
 
-		ActorDto actor = buildActor();
+		ActorDto actor = currentActor;
 		if (actor == null)
 		{
 			return;
@@ -326,32 +323,49 @@ public class EventsApiService implements EventEnvelopeSink
 	}
 
 	/**
-	 * Dispatch (sweep/flush) happens on the executor thread, not the client thread, and
-	 * getAccountType() reads a varbit under the hood, which asserts client-thread-only. invoke()
-	 * runs inline if we're already on the client thread (the DEATH/submitDeath path), otherwise
-	 * blocks this thread until the client thread picks it up.
+	 * The actor block is read straight off the client, and getAccountType() reads a varbit under
+	 * the hood, which asserts client-thread-only. Dispatch (sweep/flush) runs on the executor
+	 * thread, so it never reads the client at all - it reads this snapshot, taken once per
+	 * session from checkLogin, which is the point where the local player is known to be loaded.
 	 */
-	private ActorDto buildActor()
+	public void onLogin(String displayName)
 	{
-		AtomicReference<ActorDto> holder = new AtomicReference<>();
-		clientThread.invoke(() -> {
-			Player local = client.getLocalPlayer();
-			if (local == null || local.getName() == null || local.getName().isEmpty())
-			{
-				return;
-			}
+		currentActor = ActorDto.builder()
+			.accountHash(String.valueOf(client.getAccountHash()))
+			.displayName(displayName)
+			.accountType(client.getAccountType() != null ? client.getAccountType().name() : "UNKNOWN")
+			.world(client.getWorld())
+			.worldTypes(worldTypes())
+			.build();
+	}
 
-			List<String> worldTypes = client.getWorldType().stream().map(WorldType::name).collect(Collectors.toList());
+	/**
+	 * A hop moves world/worldTypes without ever going back through login, so the snapshot would
+	 * otherwise report the old world for the rest of the session. Only those two fields can have
+	 * changed, and both are readable here without the local player, which a hop has not
+	 * necessarily respawned yet. Rebuilt rather than mutated in place, since the dispatch thread
+	 * can be reading the current snapshot.
+	 */
+	public void onWorldChanged()
+	{
+		ActorDto cached = currentActor;
+		if (cached == null)
+		{
+			return;
+		}
 
-			holder.set(ActorDto.builder()
-				.accountHash(String.valueOf(client.getAccountHash()))
-				.displayName(local.getName())
-				.accountType(client.getAccountType() != null ? client.getAccountType().name() : "UNKNOWN")
-				.world(client.getWorld())
-				.worldTypes(worldTypes)
-				.build());
-		});
-		return holder.get();
+		currentActor = ActorDto.builder()
+			.accountHash(cached.getAccountHash())
+			.displayName(cached.getDisplayName())
+			.accountType(cached.getAccountType())
+			.world(client.getWorld())
+			.worldTypes(worldTypes())
+			.build();
+	}
+
+	private List<String> worldTypes()
+	{
+		return client.getWorldType().stream().map(WorldType::name).collect(Collectors.toList());
 	}
 
 	private void sendBatch(List<EventEnvelopeDto> envelopes, long nextRetryDelayMs)

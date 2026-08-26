@@ -1,22 +1,23 @@
 package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
-import com.fauxbingo.FauxBingoPlugin;
-import com.fauxbingo.services.data.TeamAccountDto;
-import com.fauxbingo.services.data.TeamPlayerDto;
-import com.fauxbingo.services.data.TeamRosterDto;
-import com.fauxbingo.services.data.TeamsResponseDto;
 import com.google.gson.Gson;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
-import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
 import net.runelite.api.Client;
 import net.runelite.api.IndexedSprite;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.client.callback.ClientThread;
 import okhttp3.Call;
+import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
@@ -26,11 +27,13 @@ import okhttp3.ResponseBody;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
@@ -38,6 +41,9 @@ import static org.mockito.Mockito.*;
 /**
  * Matching is on accounts[].displayName (the RSN), never players[].memberName (a Discord
  * nickname) - that distinction is the whole point of the v1 /v1/teams rewrite.
+ *
+ * The icon tests pin the other rule the plugin has to hold to: every URL it contacts is derived
+ * from the configured API base plus a hardcoded path, never lifted out of an API response.
  */
 @RunWith(MockitoJUnitRunner.Silent.class)
 public class TeamIconServiceTest
@@ -52,16 +58,20 @@ public class TeamIconServiceTest
 	private OkHttpClient okHttpClient;
 
 	@Mock
-	private Call call;
-
-	@Mock
 	private ScheduledExecutorService executor;
 
 	@Mock
 	private ClientThread clientThread;
 
 	private final Gson gson = new Gson();
+	private final List<Request> requests = new ArrayList<>();
 	private TeamIconService service;
+
+	private String rosterJson = rosterJson("team-1", false);
+	private int rosterResponseCode = 200;
+	private int iconResponseCode = 200;
+	private HttpUrl iconResponseUrl = null; // non-null simulates a redirect the client followed
+	private byte[] iconBytes;
 
 	@Before
 	public void before() throws Exception
@@ -70,6 +80,9 @@ public class TeamIconServiceTest
 		when(config.apiToken()).thenReturn("token123");
 		when(config.showTeamIconsInChat()).thenReturn(true);
 		when(client.getModIcons()).thenReturn(new IndexedSprite[0]);
+		when(client.createIndexedSprite()).thenReturn(mock(IndexedSprite.class));
+
+		iconBytes = pngBytes();
 
 		doAnswer(inv -> {
 			((Runnable) inv.getArgument(0)).run();
@@ -81,37 +94,67 @@ public class TeamIconServiceTest
 			return null;
 		}).when(executor).scheduleAtFixedRate(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class));
 
+		// Dispatch on the requested URL: the roster fetch and the icon download are separate calls
+		// and each needs its own single-shot response body.
+		when(okHttpClient.newCall(any(Request.class))).thenAnswer(inv -> {
+			Request request = inv.getArgument(0);
+			requests.add(request);
+			Call call = mock(Call.class);
+			when(call.execute()).thenAnswer(ignored -> responseFor(request));
+			return call;
+		});
+
 		service = new TeamIconService(client, config, "http://api", okHttpClient, gson, executor, clientThread);
 	}
 
-	private Response response(int code, String body)
+	private static byte[] pngBytes() throws Exception
 	{
+		BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		ImageIO.write(image, "png", out);
+		return out.toByteArray();
+	}
+
+	private Response responseFor(Request request)
+	{
+		boolean icon = request.url().encodedPath().endsWith("/icon");
+		HttpUrl finalUrl = icon && iconResponseUrl != null ? iconResponseUrl : request.url();
+
 		return new Response.Builder()
-			.request(new Request.Builder().url("http://api/v1/teams").build())
+			.request(new Request.Builder().url(finalUrl).build())
 			.protocol(Protocol.HTTP_1_1)
-			.code(code)
+			.code(icon ? iconResponseCode : rosterResponseCode)
 			.message("msg")
-			.body(ResponseBody.create(MediaType.parse("application/json"), body))
+			.body(icon
+				? ResponseBody.create(MediaType.parse("image/png"), iconBytes)
+				: ResponseBody.create(MediaType.parse("application/json"), rosterJson))
 			.build();
 	}
 
-	private TeamsResponseDto rosterWithOneTeam()
+	/**
+	 * memberName is a Discord nickname and must never be matched against chat names. iconUrl is
+	 * included when the test needs to prove we ignore it.
+	 */
+	private static String rosterJson(String teamId, boolean withIconUrl)
 	{
-		TeamAccountDto account = new TeamAccountDto();
-		account.setDisplayName("Zezima");
+		return "{\"teams\":[{\"id\":\"" + teamId + "\",\"name\":\"Red Team\""
+			+ (withIconUrl ? ",\"iconUrl\":\"http://evil.example/icon.png\"" : "")
+			+ ",\"players\":[{\"memberName\":\"Bob (Discord)\","
+			+ "\"accounts\":[{\"displayName\":\"Zezima\"}]}]}]}";
+	}
 
-		TeamPlayerDto player = new TeamPlayerDto();
-		player.setMemberName("Bob (Discord)"); // must never be matched against chat names
-		player.setAccounts(Collections.singletonList(account));
+	private List<Request> iconRequests()
+	{
+		return requests.stream()
+			.filter(r -> r.url().encodedPath().endsWith("/icon"))
+			.collect(Collectors.toList());
+	}
 
-		TeamRosterDto team = new TeamRosterDto();
-		team.setId("team-1");
-		team.setName("Red Team");
-		team.setPlayers(Collections.singletonList(player));
-
-		TeamsResponseDto resp = new TeamsResponseDto();
-		resp.setTeams(Collections.singletonList(team));
-		return resp;
+	private Runnable refreshTask()
+	{
+		ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+		verify(executor).scheduleAtFixedRate(captor.capture(), anyLong(), anyLong(), any(TimeUnit.class));
+		return captor.getValue();
 	}
 
 	@SuppressWarnings("unchecked")
@@ -123,19 +166,21 @@ public class TeamIconServiceTest
 	}
 
 	@SuppressWarnings("unchecked")
-	private void seedSpriteIndex(String teamId, int index) throws Exception
+	private Map<String, Integer> teamToSpriteIndex() throws Exception
 	{
 		Field field = TeamIconService.class.getDeclaredField("teamToSpriteIndex");
 		field.setAccessible(true);
-		((Map<String, Integer>) field.get(service)).put(teamId, index);
+		return (Map<String, Integer>) field.get(service);
+	}
+
+	private void seedSpriteIndex(String teamId, int index) throws Exception
+	{
+		teamToSpriteIndex().put(teamId, index);
 	}
 
 	@Test
 	public void fetchMatchesByRsnNotDiscordNickname() throws Exception
 	{
-		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
-		when(call.execute()).thenReturn(response(200, gson.toJson(rosterWithOneTeam())));
-
 		service.start();
 
 		Map<String, String> rsnMap = rsnToTeamId();
@@ -146,9 +191,6 @@ public class TeamIconServiceTest
 	@Test
 	public void chatMessageIsBadgedWhenRsnMatchesRegisteredTeam() throws Exception
 	{
-		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
-		when(call.execute()).thenReturn(response(200, gson.toJson(rosterWithOneTeam())));
-
 		service.start();
 		seedSpriteIndex("team-1", 5);
 
@@ -163,11 +205,8 @@ public class TeamIconServiceTest
 	}
 
 	@Test
-	public void chatMessageUnchangedWhenNoTeamMatch() throws Exception
+	public void chatMessageUnchangedWhenNoTeamMatch()
 	{
-		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
-		when(call.execute()).thenReturn(response(200, gson.toJson(rosterWithOneTeam())));
-
 		service.start();
 
 		ChatMessage event = new ChatMessage();
@@ -184,8 +223,6 @@ public class TeamIconServiceTest
 	public void chatMessageIgnoredWhenIconsDisabled() throws Exception
 	{
 		when(config.showTeamIconsInChat()).thenReturn(false);
-		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
-		when(call.execute()).thenReturn(response(200, gson.toJson(rosterWithOneTeam())));
 
 		service.start();
 		seedSpriteIndex("team-1", 5);
@@ -203,11 +240,90 @@ public class TeamIconServiceTest
 	@Test
 	public void failedTeamsFetchDoesNotThrow() throws Exception
 	{
-		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
-		when(call.execute()).thenReturn(response(500, ""));
+		rosterResponseCode = 500;
+		rosterJson = "";
 
 		service.start();
 
 		assertEquals(0, rsnToTeamId().size());
+	}
+
+	@Test
+	public void iconIsFetchedFromDerivedUrlWithAuth() throws Exception
+	{
+		service.start();
+
+		assertEquals(1, iconRequests().size());
+		Request icon = iconRequests().get(0);
+		assertEquals("http://api/v1/teams/team-1/icon", icon.url().toString());
+		assertEquals("Bearer token123", icon.header("Authorization"));
+		assertEquals(Integer.valueOf(0), teamToSpriteIndex().get("team-1"));
+	}
+
+	@Test
+	public void iconUrlFromApiResponseIsNeverContacted()
+	{
+		rosterJson = rosterJson("team-1", true);
+
+		service.start();
+
+		assertTrue("plugin must not contact a URL supplied by the API response",
+			requests.stream().allMatch(r -> "api".equals(r.url().host())));
+	}
+
+	@Test
+	public void teamIdWithSlashesIsEncodedIntoASingleSegment()
+	{
+		rosterJson = rosterJson("../../evil", false);
+
+		service.start();
+
+		assertEquals(1, iconRequests().size());
+		HttpUrl url = iconRequests().get(0).url();
+		assertEquals("api", url.host());
+		assertEquals("/v1/teams/..%2F..%2Fevil/icon", url.encodedPath());
+	}
+
+	@Test
+	public void teamIdThatEscapesTheTeamsPathIsRejected()
+	{
+		rosterJson = rosterJson("..", false);
+
+		service.start();
+
+		assertTrue("a team id that walks out of /v1/teams must not be requested",
+			iconRequests().isEmpty());
+	}
+
+	@Test
+	public void iconIsRegisteredOnlyOnceAcrossRefreshes()
+	{
+		service.start();
+		refreshTask().run();
+
+		assertEquals(1, iconRequests().size());
+	}
+
+	@Test
+	public void failedIconFetchIsNotRetried() throws Exception
+	{
+		iconResponseCode = 404;
+
+		service.start();
+		refreshTask().run();
+
+		assertEquals(1, iconRequests().size());
+		assertNull(teamToSpriteIndex().get("team-1"));
+	}
+
+	@Test
+	public void redirectedIconResponseIsIgnored() throws Exception
+	{
+		iconResponseUrl = HttpUrl.parse("http://evil.example/icon.png");
+
+		service.start();
+
+		assertNull(teamToSpriteIndex().get("team-1"));
+		verify(client, never()).setModIcons(any());
 	}
 }

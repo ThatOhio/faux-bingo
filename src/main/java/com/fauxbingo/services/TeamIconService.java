@@ -10,8 +10,10 @@ import com.google.gson.Gson;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -27,6 +29,7 @@ import net.runelite.client.callback.ClientThread;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.Text;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -35,12 +38,17 @@ import okhttp3.Response;
  * Fetches the full team roster from GET /v1/teams and badges clan chat names with their team's
  * icon. Matching is on accounts[].displayName (the RSN) - players[].memberName is a Discord
  * nickname and must never be matched against an RSN (docs/v1-api.md, GET /v1/teams).
+ *
+ * Icons are downloaded from GET {apiBaseUrl}/v1/teams/{teamId}/icon. Every URL this service
+ * contacts is built from the user-configured API base plus a hardcoded path - no URL is ever
+ * taken out of an API response.
  */
 @Slf4j
 @Singleton
 public class TeamIconService
 {
 	private static final String TEAMS_PATH = "/v1/teams";
+	private static final String ICON_SEGMENT = "icon";
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -52,7 +60,7 @@ public class TeamIconService
 
 	private final Map<String, String> rsnToTeamId = new HashMap<>();     // lowercase+trimmed RSN -> team id
 	private final Map<String, Integer> teamToSpriteIndex = new HashMap<>(); // team id -> mod icon array index
-	private final Map<String, String> teamToIconUrl = new HashMap<>();      // team id -> registered URL (change detection + deduplication)
+	private final Set<String> iconFetchFailures = new HashSet<>();          // team ids whose icon 404'd or failed to decode
 	private int iconsRegisteredCount = 0;
 	private volatile int initialModIconsLength = -1;                        // captured on client thread before first fetch
 	private ScheduledFuture<?> refreshTask = null;
@@ -164,61 +172,94 @@ public class TeamIconService
 		for (TeamRosterDto team : teams)
 		{
 			String teamId = team.getId();
-			String url = team.getIconUrl();
 
-			if (teamId == null || url == null)
+			if (teamId == null || teamId.trim().isEmpty())
 			{
 				continue;
 			}
 
-			if (url.equals(teamToIconUrl.get(teamId)))
+			// The icon URL is derived from the team id, so it never changes within a session:
+			// a team whose sprite is registered - or whose icon we already failed to fetch - is done.
+			synchronized (teamToSpriteIndex)
 			{
-				continue;
-			}
-
-			// Check if another team already has the same URL registered
-			String existingTeamWithSameUrl = null;
-			synchronized (teamToIconUrl)
-			{
-				for (Map.Entry<String, String> entry : teamToIconUrl.entrySet())
+				if (teamToSpriteIndex.containsKey(teamId))
 				{
-					if (url.equals(entry.getValue()))
-					{
-						existingTeamWithSameUrl = entry.getKey();
-						break;
-					}
+					continue;
+				}
+			}
+			synchronized (iconFetchFailures)
+			{
+				if (iconFetchFailures.contains(teamId))
+				{
+					continue;
 				}
 			}
 
-			if (existingTeamWithSameUrl != null)
-			{
-				synchronized (teamToSpriteIndex)
-				{
-					Integer existingIndex = teamToSpriteIndex.get(existingTeamWithSameUrl);
-					if (existingIndex != null)
-					{
-						teamToSpriteIndex.put(teamId, existingIndex);
-						synchronized (teamToIconUrl)
-						{
-							teamToIconUrl.put(teamId, url);
-						}
-						continue;
-					}
-				}
-			}
-
-			downloadAndRegisterIcon(teamId, url);
+			downloadAndRegisterIcon(teamId);
 		}
 	}
 
-	private void downloadAndRegisterIcon(String teamId, String url)
+	/**
+	 * Builds {apiBaseUrl}/v1/teams/{teamId}/icon. The team id is added as an encoded path segment so
+	 * a server-supplied id cannot inject extra segments, and the result is rejected unless it is
+	 * still under the hardcoded /v1/teams path.
+	 */
+	private HttpUrl iconUrl(String teamId)
 	{
-		Request request = new Request.Builder().url(url).build();
+		HttpUrl base = HttpUrl.parse(apiBaseUrl.replaceAll("/$", ""));
+		if (base == null)
+		{
+			return null;
+		}
+
+		HttpUrl teamsUrl = base.newBuilder()
+			.addPathSegment("v1")
+			.addPathSegment("teams")
+			.build();
+
+		HttpUrl url = teamsUrl.newBuilder()
+			.addPathSegment(teamId)
+			.addPathSegment(ICON_SEGMENT)
+			.build();
+
+		if (!url.encodedPath().startsWith(teamsUrl.encodedPath() + "/"))
+		{
+			log.debug("Refusing icon URL for team id {}: escapes {}", teamId, teamsUrl.encodedPath());
+			return null;
+		}
+
+		return url;
+	}
+
+	private void downloadAndRegisterIcon(String teamId)
+	{
+		HttpUrl url = iconUrl(teamId);
+		if (url == null)
+		{
+			rememberIconFailure(teamId);
+			return;
+		}
+
+		Request request = new Request.Builder()
+			.url(url)
+			.header("Authorization", "Bearer " + config.apiToken().trim())
+			.build();
+
 		try (Response response = okHttpClient.newCall(request).execute())
 		{
 			if (!response.isSuccessful() || response.body() == null)
 			{
 				log.debug("Failed to download icon for team {}: {}", teamId, response);
+				rememberIconFailure(teamId);
+				return;
+			}
+
+			// A redirect would send us to a host the server picked rather than one derived from the
+			// configured API base, so only accept a body that came back from the URL we asked for.
+			if (!url.equals(response.request().url()))
+			{
+				log.debug("Ignoring redirected icon response for team {}: {}", teamId, response.request().url());
+				rememberIconFailure(teamId);
 				return;
 			}
 
@@ -226,6 +267,7 @@ public class TeamIconService
 			if (image == null)
 			{
 				log.debug("Failed to decode icon for team {}", teamId);
+				rememberIconFailure(teamId);
 				return;
 			}
 
@@ -242,15 +284,20 @@ public class TeamIconService
 				{
 					teamToSpriteIndex.put(teamId, current.length);
 				}
-				synchronized (teamToIconUrl)
-				{
-					teamToIconUrl.put(teamId, url);
-				}
 			});
 		}
 		catch (Exception e)
 		{
 			log.debug("Error registering icon for team " + teamId, e);
+			rememberIconFailure(teamId);
+		}
+	}
+
+	private void rememberIconFailure(String teamId)
+	{
+		synchronized (iconFetchFailures)
+		{
+			iconFetchFailures.add(teamId);
 		}
 	}
 
@@ -334,9 +381,9 @@ public class TeamIconService
 		{
 			teamToSpriteIndex.clear();
 		}
-		synchronized (teamToIconUrl)
+		synchronized (iconFetchFailures)
 		{
-			teamToIconUrl.clear();
+			iconFetchFailures.clear();
 		}
 	}
 

@@ -98,7 +98,6 @@ public class MeServiceTest
 		TeamDto team = new TeamDto();
 		team.setId("team-1");
 		team.setName("Red Team");
-		team.setDiscordScreenshotWebhookUrl("https://discord.com/api/webhooks/team");
 		TeamColorsDto colors = new TeamColorsDto();
 		colors.setPrimaryBackground("#FF0000");
 		team.setColors(colors);

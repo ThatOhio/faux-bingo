@@ -13,6 +13,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.UsernameChanged;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.events.ConfigChanged;
 import org.junit.Before;
 import org.junit.Test;
@@ -52,6 +53,9 @@ public class LoginDetectionTest
     @Mock
     private XpTracker xpTracker;
 
+    @Mock
+    private ClientThread clientThread;
+
     private FauxBingoPlugin plugin;
 
     @Before
@@ -61,6 +65,7 @@ public class LoginDetectionTest
 
         // The plugin's own subscribers reach these collaborators, which Guice supplies in production.
         setField(plugin, "client", client);
+        setField(plugin, "clientThread", clientThread);
         setField(plugin, "config", config);
         setField(plugin, "meService", meService);
         setField(plugin, "presenceService", presenceService);
@@ -71,6 +76,12 @@ public class LoginDetectionTest
         setField(plugin, "xpTracker", xpTracker);
 
         lenient().when(config.enableBingoApi()).thenReturn(true);
+
+        // Match ClientThread.invoke's inline behaviour on the client thread.
+        lenient().doAnswer(invocation -> {
+            invocation.getArgument(0, Runnable.class).run();
+            return null;
+        }).when(clientThread).invoke(any(Runnable.class));
     }
 
     private void setField(Object obj, String fieldName, Object value) throws Exception

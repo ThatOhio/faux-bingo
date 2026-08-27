@@ -29,6 +29,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.UsernameChanged;
 import net.runelite.api.events.WorldChanged;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
@@ -56,6 +57,9 @@ public class FauxBingoPlugin extends Plugin
 
 	@Inject
 	private Client client;
+
+	@Inject
+	private ClientThread clientThread;
 
 	@Inject
 	private FauxBingoConfig config;
@@ -111,7 +115,7 @@ public class FauxBingoPlugin extends Plugin
 	@Inject
 	private XpTracker xpTracker;
 
-	private boolean loginTriggered = false;
+	private volatile boolean loginTriggered = false;
 
 	@Override
 	protected void startUp() throws Exception
@@ -199,11 +203,13 @@ public class FauxBingoPlugin extends Plugin
 			presenceService.start();
 			eventsApiService.start();
 			teamIconService.start();
-			Player local = client.getLocalPlayer();
-			if (local != null && local.getName() != null && !local.getName().isEmpty())
-			{
-				meService.refresh(local.getName());
-			}
+			clientThread.invoke(() -> {
+				Player local = client.getLocalPlayer();
+				if (local != null && local.getName() != null && !local.getName().isEmpty())
+				{
+					meService.refresh(local.getName());
+				}
+			});
 		}
 	}
 
@@ -278,25 +284,28 @@ public class FauxBingoPlugin extends Plugin
 		}
 	}
 
+	/** Reads client state, so it has to run on the client thread. */
 	private void checkLogin()
 	{
-		if (loginTriggered || client.getGameState() != GameState.LOGGED_IN)
-		{
-			return;
-		}
-
-		Player local = client.getLocalPlayer();
-		if (local != null)
-		{
-			String name = local.getName();
-			if (name != null && !name.isEmpty())
+		clientThread.invoke(() -> {
+			if (loginTriggered || client.getGameState() != GameState.LOGGED_IN)
 			{
-				meService.onLogin(name);
-				presenceService.onLogin(name);
-				eventsApiService.onLogin(name);
-				loginTriggered = true;
+				return;
 			}
-		}
+
+			Player local = client.getLocalPlayer();
+			if (local != null)
+			{
+				String name = local.getName();
+				if (name != null && !name.isEmpty())
+				{
+					meService.onLogin(name);
+					presenceService.onLogin(name);
+					eventsApiService.onLogin(name);
+					loginTriggered = true;
+				}
+			}
+		});
 	}
 
 	@Provides

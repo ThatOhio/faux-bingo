@@ -59,7 +59,7 @@ public class PresenceServiceTest
 			((Runnable) inv.getArgument(0)).run();
 			return null;
 		}).when(clientThread).invoke(any(Runnable.class));
-		presenceService = new PresenceService(client, clientThread, config, "http://api", okHttpClient, new Gson(), executor);
+		presenceService = new PresenceService(client, clientThread, config, () -> "http://api", okHttpClient, new Gson(), executor);
 	}
 
 	@Test

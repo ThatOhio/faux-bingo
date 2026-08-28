@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -52,7 +53,7 @@ public class TeamIconService
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final String apiBaseUrl;
+	private final Provider<String> apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
 	private final ScheduledExecutorService executor;
@@ -69,7 +70,7 @@ public class TeamIconService
 	public TeamIconService(
 		Client client,
 		FauxBingoConfig config,
-		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl,
+		@Named(FauxBingoPlugin.API_BASE_URL_KEY) Provider<String> apiBaseUrl,
 		OkHttpClient okHttpClient,
 		Gson gson,
 		ScheduledExecutorService executor,
@@ -78,7 +79,7 @@ public class TeamIconService
 	{
 		this.client = client;
 		this.config = config;
-		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
+		this.apiBaseUrl = apiBaseUrl;
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 		this.executor = executor;
@@ -108,7 +109,7 @@ public class TeamIconService
 		try
 		{
 			Request request = new Request.Builder()
-				.url(apiBaseUrl.replaceAll("/$", "") + TEAMS_PATH)
+				.url(apiBaseUrl.get().replaceAll("/$", "") + TEAMS_PATH)
 				.header("Authorization", "Bearer " + config.apiToken().trim())
 				.build();
 
@@ -206,7 +207,7 @@ public class TeamIconService
 	 */
 	private HttpUrl iconUrl(String teamId)
 	{
-		HttpUrl base = HttpUrl.parse(apiBaseUrl.replaceAll("/$", ""));
+		HttpUrl base = HttpUrl.parse(apiBaseUrl.get().replaceAll("/$", ""));
 		if (base == null)
 		{
 			return null;
@@ -389,6 +390,6 @@ public class TeamIconService
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.isEmpty();
+		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
 	}
 }

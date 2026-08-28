@@ -195,7 +195,8 @@ public class FauxBingoPlugin extends Plugin
 			return;
 		}
 
-		if (event.getKey().equals("enableBingoApi") && config.enableBingoApi())
+		String key = event.getKey();
+		if (config.enableBingoApi() && (key.equals("enableBingoApi") || key.equals("apiToken") || key.equals("apiBaseUrl")))
 		{
 			loginTriggered = false;
 			checkLogin();
@@ -315,9 +316,9 @@ public class FauxBingoPlugin extends Plugin
 	}
 
 	/**
-	 * Resolved once when the plugin starts up (Guice creates a fresh injector each time it's
-	 * enabled), so a config change to this value takes effect on the next plugin restart
-	 * (toggle off/on) rather than live like apiToken.
+	 * Injected as a Provider so it re-resolves per request. RuneLite builds the plugin injector
+	 * once per client session and does not rebuild it on enable/disable, so a captured String
+	 * would never pick up a config change.
 	 */
 	@Provides
 	@Named(API_BASE_URL_KEY)

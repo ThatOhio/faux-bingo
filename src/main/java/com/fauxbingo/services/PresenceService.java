@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -42,7 +43,7 @@ public class PresenceService
 	private final Client client;
 	private final ClientThread clientThread;
 	private final FauxBingoConfig config;
-	private final String apiBaseUrl;
+	private final Provider<String> apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
 	private final ScheduledExecutorService executor;
@@ -51,13 +52,13 @@ public class PresenceService
 
 	@Inject
 	public PresenceService(Client client, ClientThread clientThread, FauxBingoConfig config,
-		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient,
+		@Named(FauxBingoPlugin.API_BASE_URL_KEY) Provider<String> apiBaseUrl, OkHttpClient okHttpClient,
 		Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.clientThread = clientThread;
 		this.config = config;
-		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
+		this.apiBaseUrl = apiBaseUrl;
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 		this.executor = executor;
@@ -123,7 +124,7 @@ public class PresenceService
 	{
 		String json = gson.toJson(body);
 		Request request = new Request.Builder()
-			.url(apiBaseUrl.replaceAll("/$", "") + SEEN_PATH)
+			.url(apiBaseUrl.get().replaceAll("/$", "") + SEEN_PATH)
 			.header("Authorization", "Bearer " + config.apiToken().trim())
 			.post(RequestBody.create(JSON, json))
 			.build();
@@ -168,6 +169,6 @@ public class PresenceService
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.isEmpty();
+		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
 	}
 }

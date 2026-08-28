@@ -80,7 +80,7 @@ public class EventsApiServiceTest
 			return null;
 		}).when(executor).schedule(any(Runnable.class), anyLong(), any(java.util.concurrent.TimeUnit.class));
 
-		service = new EventsApiService(client, config, "http://api", okHttpClient, gson, executor);
+		service = new EventsApiService(client, config, () -> "http://api", okHttpClient, gson, executor);
 		service.onLogin("Zezima");
 	}
 

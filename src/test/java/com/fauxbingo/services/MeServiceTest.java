@@ -50,6 +50,7 @@ public class MeServiceTest
 	private ScheduledExecutorService executor;
 
 	private final Gson gson = new Gson();
+	private String baseUrl = "http://api";
 	private MeService meService;
 
 	@Before
@@ -66,7 +67,7 @@ public class MeServiceTest
 			return mock(ScheduledFuture.class);
 		}).when(executor).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
 
-		meService = new MeService(config, configManager, "http://api", okHttpClient, gson, executor);
+		meService = new MeService(config, configManager, () -> baseUrl, okHttpClient, gson, executor);
 	}
 
 	private Callback captureCallback()
@@ -167,5 +168,18 @@ public class MeServiceTest
 		meService.onLogin("AltAccount");
 
 		verify(okHttpClient, times(2)).newCall(any(Request.class));
+	}
+
+	@Test
+	public void readsBaseUrlLiveOnEachFetch()
+	{
+		meService.onLogin("Zezima");
+		baseUrl = "http://other";
+		meService.refresh("Zezima");
+
+		ArgumentCaptor<Request> captor = ArgumentCaptor.forClass(Request.class);
+		verify(okHttpClient, times(2)).newCall(captor.capture());
+		assertEquals("http://api/v1/me", captor.getAllValues().get(0).url().toString());
+		assertEquals("http://other/v1/me", captor.getAllValues().get(1).url().toString());
 	}
 }

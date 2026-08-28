@@ -104,7 +104,7 @@ public class TeamIconServiceTest
 			return call;
 		});
 
-		service = new TeamIconService(client, config, "http://api", okHttpClient, gson, executor, clientThread);
+		service = new TeamIconService(client, config, () -> "http://api", okHttpClient, gson, executor, clientThread);
 	}
 
 	private static byte[] pngBytes() throws Exception

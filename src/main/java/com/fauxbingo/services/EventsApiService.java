@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -76,7 +77,7 @@ public class EventsApiService implements EventEnvelopeSink
 
 	private final Client client;
 	private final FauxBingoConfig config;
-	private final String apiBaseUrl;
+	private final Provider<String> apiBaseUrl;
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
 	private final ScheduledExecutorService executor;
@@ -90,12 +91,12 @@ public class EventsApiService implements EventEnvelopeSink
 
 	@Inject
 	public EventsApiService(Client client, FauxBingoConfig config,
-		@Named(FauxBingoPlugin.API_BASE_URL_KEY) String apiBaseUrl, OkHttpClient okHttpClient,
+		@Named(FauxBingoPlugin.API_BASE_URL_KEY) Provider<String> apiBaseUrl, OkHttpClient okHttpClient,
 		Gson gson, ScheduledExecutorService executor)
 	{
 		this.client = client;
 		this.config = config;
-		this.apiBaseUrl = apiBaseUrl != null ? apiBaseUrl : "";
+		this.apiBaseUrl = apiBaseUrl;
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
 		this.executor = executor;
@@ -377,7 +378,7 @@ public class EventsApiService implements EventEnvelopeSink
 
 		String json = gson.toJson(envelopes);
 		Request request = new Request.Builder()
-			.url(apiBaseUrl.replaceAll("/$", "") + EVENTS_PATH)
+			.url(apiBaseUrl.get().replaceAll("/$", "") + EVENTS_PATH)
 			.header("Authorization", "Bearer " + config.apiToken().trim())
 			.post(RequestBody.create(JSON, json))
 			.build();
@@ -437,7 +438,7 @@ public class EventsApiService implements EventEnvelopeSink
 			return;
 		}
 
-		HttpUrl url = HttpUrl.parse(apiBaseUrl.replaceAll("/$", "") + EVENTS_PATH + "/" + eventId + SCREENSHOT_PATH_SUFFIX);
+		HttpUrl url = HttpUrl.parse(apiBaseUrl.get().replaceAll("/$", "") + EVENTS_PATH + "/" + eventId + SCREENSHOT_PATH_SUFFIX);
 		if (url == null)
 		{
 			return;
@@ -493,6 +494,6 @@ public class EventsApiService implements EventEnvelopeSink
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.isEmpty();
+		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
 	}
 }

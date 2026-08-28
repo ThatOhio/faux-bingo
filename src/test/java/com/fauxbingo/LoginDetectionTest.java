@@ -141,4 +141,21 @@ public class LoginDetectionTest
         verify(presenceService).onLogin("TestUser");
         verify(meService).refresh("TestUser");
     }
+
+    @Test
+    public void testOnConfigChanged_TokenChangeRefetches()
+    {
+        when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+        Player localPlayer = mock(Player.class);
+        when(localPlayer.getName()).thenReturn("TestUser");
+        when(client.getLocalPlayer()).thenReturn(localPlayer);
+
+        ConfigChanged event = new ConfigChanged();
+        event.setGroup("fauxbingo");
+        event.setKey("apiToken");
+
+        plugin.onConfigChanged(event);
+
+        verify(meService).refresh("TestUser");
+    }
 }

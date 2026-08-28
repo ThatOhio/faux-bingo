@@ -183,7 +183,7 @@ public interface FauxBingoConfig extends Config
 	@ConfigItem(
 			keyName = "apiBaseUrl",
 			name = "API Base URL",
-			description = "Base URL for the bingo API. Only change this for local testing against a dev server; leave default for normal use. Takes effect after re-enabling the plugin.",
+			description = "Base URL for the bingo API. Only change this for local testing against a dev server; leave default for normal use.",
 			position = 1,
 			section = advancedSection
 	)

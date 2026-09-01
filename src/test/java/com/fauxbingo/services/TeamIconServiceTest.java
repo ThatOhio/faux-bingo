@@ -178,6 +178,20 @@ public class TeamIconServiceTest
 		teamToSpriteIndex().put(teamId, index);
 	}
 
+	@SuppressWarnings("unchecked")
+	private Map<String, Long> iconFetchFailures() throws Exception
+	{
+		Field field = TeamIconService.class.getDeclaredField("iconFetchFailures");
+		field.setAccessible(true);
+		return (Map<String, Long>) field.get(service);
+	}
+
+	/** Pretends the retry cooldown on a remembered icon failure has already elapsed. */
+	private void expireIconFailure(String teamId) throws Exception
+	{
+		iconFetchFailures().put(teamId, System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1));
+	}
+
 	@Test
 	public void fetchMatchesByRsnNotDiscordNickname() throws Exception
 	{
@@ -202,6 +216,8 @@ public class TeamIconServiceTest
 		service.onChatMessage(event);
 
 		verify(node).setName("<img=5>Zezima");
+		// Without this the chatbox line, which may already be built, never picks the name up.
+		verify(client).refreshChat();
 	}
 
 	@Test
@@ -217,6 +233,7 @@ public class TeamIconServiceTest
 		service.onChatMessage(event);
 
 		verify(node, never()).setName(any());
+		verify(client, never()).refreshChat();
 	}
 
 	@Test
@@ -305,7 +322,7 @@ public class TeamIconServiceTest
 	}
 
 	@Test
-	public void failedIconFetchIsNotRetried() throws Exception
+	public void failedIconFetchIsNotRetriedWithinTheCooldown() throws Exception
 	{
 		iconResponseCode = 404;
 
@@ -314,6 +331,78 @@ public class TeamIconServiceTest
 
 		assertEquals(1, iconRequests().size());
 		assertNull(teamToSpriteIndex().get("team-1"));
+	}
+
+	/**
+	 * An icon that 404'd because it had not been uploaded yet has to be able to appear later in the
+	 * same session - a failure the plugin remembers forever needs a client restart to clear.
+	 */
+	@Test
+	public void failedIconFetchIsRetriedOnceTheCooldownElapses() throws Exception
+	{
+		iconResponseCode = 404;
+
+		service.start();
+		assertEquals(1, iconRequests().size());
+
+		expireIconFailure("team-1");
+		iconResponseCode = 200;
+		refreshTask().run();
+
+		assertEquals(2, iconRequests().size());
+		assertEquals(Integer.valueOf(0), teamToSpriteIndex().get("team-1"));
+	}
+
+	/**
+	 * The icon lives behind RuneLite's shared on-disk OkHttp cache, and the route serves it with a
+	 * one-hour max-age and no validator, so a replaced icon would otherwise stay stale for an hour
+	 * across plugin toggles and client restarts.
+	 */
+	@Test
+	public void iconRequestBypassesTheSharedHttpCache()
+	{
+		service.start();
+
+		assertEquals("no-cache", iconRequests().get(0).header("Cache-Control"));
+	}
+
+	/**
+	 * onConfigChanged calls start() on every apiToken/apiBaseUrl/enableBingoApi edit. The schedule
+	 * happens on the client thread, so a guard that reads refreshTask lets two quick calls both
+	 * schedule, leaking the first task uncancelled for the rest of the session.
+	 */
+	@Test
+	public void startSchedulesOnlyOnceWhenCalledRepeatedly()
+	{
+		service.start();
+		service.start();
+
+		verify(executor, times(1)).scheduleAtFixedRate(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class));
+	}
+
+	/**
+	 * The game sends spaces in chat names as \u00A0, so a trim+lowercase of the RSN can never match
+	 * the plain space the API returns - every multi-word RSN would go unbadged.
+	 */
+	@Test
+	public void rsnWithASpaceMatchesTheNonBreakingSpaceTheGameSends() throws Exception
+	{
+		rosterJson = "{\"teams\":[{\"id\":\"team-1\",\"name\":\"Red Team\",\"players\":["
+			+ "{\"memberName\":\"Herc (Discord)\",\"accounts\":[{\"displayName\":\"DH Herc\"}]}]}]}";
+
+		service.start();
+		seedSpriteIndex("team-1", 3);
+
+		assertEquals("team-1", rsnToTeamId().get("dh herc"));
+
+		ChatMessage event = new ChatMessage();
+		event.setName("DH\u00A0Herc");
+		net.runelite.api.MessageNode node = mock(net.runelite.api.MessageNode.class);
+		event.setMessageNode(node);
+
+		service.onChatMessage(event);
+
+		verify(node).setName("<img=3>DH\u00A0Herc");
 	}
 
 	@Test

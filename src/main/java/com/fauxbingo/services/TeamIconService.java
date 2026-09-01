@@ -10,13 +10,12 @@ import com.google.gson.Gson;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -30,6 +29,7 @@ import net.runelite.client.callback.ClientThread;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.util.Text;
+import okhttp3.CacheControl;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -50,6 +50,7 @@ public class TeamIconService
 {
 	private static final String TEAMS_PATH = "/v1/teams";
 	private static final String ICON_SEGMENT = "icon";
+	private static final long ICON_RETRY_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(30);
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -59,12 +60,13 @@ public class TeamIconService
 	private final ScheduledExecutorService executor;
 	private final ClientThread clientThread;
 
-	private final Map<String, String> rsnToTeamId = new HashMap<>();     // lowercase+trimmed RSN -> team id
+	private final Map<String, String> rsnToTeamId = new HashMap<>();     // standardized RSN -> team id
 	private final Map<String, Integer> teamToSpriteIndex = new HashMap<>(); // team id -> mod icon array index
-	private final Set<String> iconFetchFailures = new HashSet<>();          // team ids whose icon 404'd or failed to decode
+	private final Map<String, Long> iconFetchFailures = new HashMap<>();    // team id -> when its icon last failed to fetch or decode
 	private int iconsRegisteredCount = 0;
 	private volatile int initialModIconsLength = -1;                        // captured on client thread before first fetch
-	private ScheduledFuture<?> refreshTask = null;
+	private final AtomicBoolean started = new AtomicBoolean(false);
+	private volatile ScheduledFuture<?> refreshTask = null;
 
 	@Inject
 	public TeamIconService(
@@ -88,12 +90,21 @@ public class TeamIconService
 
 	public void start()
 	{
-		if (refreshTask != null && !refreshTask.isCancelled())
+		// Claimed here rather than by checking refreshTask, which stays null until the lambda below
+		// reaches the client thread: two start() calls in quick succession - onConfigChanged lands
+		// one on every apiToken/apiBaseUrl/enableBingoApi edit - would otherwise both schedule a
+		// task, and only the second could ever be cancelled.
+		if (!started.compareAndSet(false, true))
 		{
 			return;
 		}
 
 		clientThread.invokeLater(() -> {
+			if (!started.get())
+			{
+				// shutdown() ran before this reached the client thread.
+				return;
+			}
 			initialModIconsLength = client.getModIcons().length;
 			refreshTask = executor.scheduleAtFixedRate(this::fetchTeamData, 0, 5, TimeUnit.MINUTES);
 		});
@@ -118,7 +129,16 @@ public class TeamIconService
 			{
 				if (!response.isSuccessful() || response.body() == null)
 				{
-					log.debug("Failed to fetch /v1/teams: {}", response);
+					// Warn, not debug: an unusable roster silently disables every chat icon, and
+					// the sibling services already warn on the same 401 (MeService, PresenceService).
+					if (response.code() == 401)
+					{
+						log.warn("GET /v1/teams returned 401, token is missing or unknown. Team chat icons stay off until it is fixed.");
+					}
+					else
+					{
+						log.warn("GET /v1/teams returned {}: {}", response.code(), response.message());
+					}
 					return;
 				}
 				parsed = gson.fromJson(response.body().charStream(), TeamsResponseDto.class);
@@ -161,7 +181,16 @@ public class TeamIconService
 						{
 							continue;
 						}
-						rsnToTeamId.put(account.getDisplayName().trim().toLowerCase(), team.getId());
+						// Text.standardize, not trim+toLowerCase: the game encodes spaces in chat
+						// names as \u00A0, so an RSN like "DH Herc" arrives as "dh\u00a0herc" and
+						// would never match the API's plain space. Both sides must normalize the
+						// same way or multi-word RSNs are unmatchable.
+						String rsn = Text.standardize(account.getDisplayName());
+						if (rsn.isEmpty())
+						{
+							continue;
+						}
+						rsnToTeamId.put(rsn, team.getId());
 					}
 				}
 			}
@@ -179,8 +208,8 @@ public class TeamIconService
 				continue;
 			}
 
-			// The icon URL is derived from the team id, so it never changes within a session:
-			// a team whose sprite is registered - or whose icon we already failed to fetch - is done.
+			// A team whose sprite is already registered is done for this session - the icon URL is
+			// derived from the team id, so it never changes.
 			synchronized (teamToSpriteIndex)
 			{
 				if (teamToSpriteIndex.containsKey(teamId))
@@ -188,9 +217,13 @@ public class TeamIconService
 					continue;
 				}
 			}
+			// A failure is remembered for a cooldown rather than the whole session: an icon that
+			// 404'd because it had not been uploaded yet, or a download that hit a network blip,
+			// has to be able to recover without the user restarting the client.
 			synchronized (iconFetchFailures)
 			{
-				if (iconFetchFailures.contains(teamId))
+				Long failedAt = iconFetchFailures.get(teamId);
+				if (failedAt != null && System.currentTimeMillis() - failedAt < ICON_RETRY_COOLDOWN_MS)
 				{
 					continue;
 				}
@@ -241,8 +274,14 @@ public class TeamIconService
 			return;
 		}
 
+		// RuneLite's injected OkHttpClient carries a shared on-disk cache, and the icon route
+		// answers with `Cache-Control: public, max-age=3600` and no validator - so without this an
+		// icon replaced on the site stays stale for an hour, across plugin toggles and client
+		// restarts alike. This runs once per team per session, so always going to the network is
+		// cheap.
 		Request request = new Request.Builder()
 			.url(url)
+			.cacheControl(CacheControl.FORCE_NETWORK)
 			.header("Authorization", "Bearer " + config.apiToken().trim())
 			.build();
 
@@ -298,7 +337,7 @@ public class TeamIconService
 	{
 		synchronized (iconFetchFailures)
 		{
-			iconFetchFailures.add(teamId);
+			iconFetchFailures.put(teamId, System.currentTimeMillis());
 		}
 	}
 
@@ -316,7 +355,7 @@ public class TeamIconService
 			return;
 		}
 
-		String sanitizedName = Text.removeTags(name).trim().toLowerCase();
+		String sanitizedName = Text.standardize(name);
 		String teamId;
 		synchronized (rsnToTeamId)
 		{
@@ -339,11 +378,16 @@ public class TeamIconService
 			return;
 		}
 
-		event.getMessageNode().setName("<img=" + index + ">" + event.getName());
+		event.getMessageNode().setName("<img=" + index + ">" + name);
+		// The chatbox line for this message may already be built, and nothing rebuilds it on its
+		// own - without this the badge does not show until some later message forces a rebuild.
+		client.refreshChat();
 	}
 
 	public void shutdown()
 	{
+		started.set(false);
+
 		if (refreshTask != null)
 		{
 			refreshTask.cancel(false);

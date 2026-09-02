@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import net.runelite.api.Client;
@@ -63,6 +64,8 @@ public class TeamIconServiceTest
 	@Mock
 	private ClientThread clientThread;
 
+	private static final int MAX_TICKS = 50;
+
 	private final Gson gson = new Gson();
 	private final List<Request> requests = new ArrayList<>();
 	private TeamIconService service;
@@ -72,6 +75,7 @@ public class TeamIconServiceTest
 	private int iconResponseCode = 200;
 	private HttpUrl iconResponseUrl = null; // non-null simulates a redirect the client followed
 	private byte[] iconBytes;
+	private int ticksWaited = 0;
 
 	@Before
 	public void before() throws Exception
@@ -88,6 +92,17 @@ public class TeamIconServiceTest
 			((Runnable) inv.getArgument(0)).run();
 			return null;
 		}).when(clientThread).invokeLater(any(Runnable.class));
+
+		// The BooleanSupplier overload re-runs on the next tick until it returns true, so the stub
+		// has to keep calling it rather than firing once.
+		doAnswer(inv -> {
+			BooleanSupplier r = inv.getArgument(0);
+			for (int tick = 0; tick < MAX_TICKS && !r.getAsBoolean(); tick++)
+			{
+				ticksWaited++;
+			}
+			return null;
+		}).when(clientThread).invokeLater(any(BooleanSupplier.class));
 
 		doAnswer(inv -> {
 			((Runnable) inv.getArgument(0)).run();
@@ -414,5 +429,41 @@ public class TeamIconServiceTest
 
 		assertNull(teamToSpriteIndex().get("team-1"));
 		verify(client, never()).setModIcons(any());
+	}
+
+	/**
+	 * getModIcons() is null until the client loads sprites, and RuneLite starts plugins at the login
+	 * screen. Dereferencing it there threw, and ClientThread drops a task that throws - so the
+	 * refresh was never scheduled and chat icons stayed off for the whole client session.
+	 */
+	@Test
+	public void startWaitsForModIconsInsteadOfGivingUpAtTheLoginScreen() throws Exception
+	{
+		when(client.getModIcons()).thenReturn(null, null, new IndexedSprite[4]);
+
+		service.start();
+
+		assertEquals(2, ticksWaited);
+		verify(executor).scheduleAtFixedRate(any(Runnable.class), eq(0L), eq(5L), eq(TimeUnit.MINUTES));
+		assertEquals("team-1", rsnToTeamId().get("zezima"));
+	}
+
+	/** A shutdown while still waiting for modIcons must drop the retry, not schedule a late task. */
+	@Test
+	public void pendingRetryIsDroppedWhenShutdownRunsFirst()
+	{
+		when(client.getModIcons()).thenReturn(null);
+
+		service.start();
+		assertEquals(MAX_TICKS, ticksWaited);
+
+		ArgumentCaptor<BooleanSupplier> captor = ArgumentCaptor.forClass(BooleanSupplier.class);
+		verify(clientThread).invokeLater(captor.capture());
+
+		service.shutdown();
+
+		// true takes it off the client thread queue rather than retrying for the rest of the session.
+		assertTrue(captor.getValue().getAsBoolean());
+		verify(executor, never()).scheduleAtFixedRate(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class));
 	}
 }

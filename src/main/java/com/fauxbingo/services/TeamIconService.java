@@ -99,14 +99,24 @@ public class TeamIconService
 			return;
 		}
 
+		// BooleanSupplier overload: returning false re-runs this next tick. Plugins start before the
+		// game loads, so getModIcons() is null at the login screen and we have to wait for it.
 		clientThread.invokeLater(() -> {
 			if (!started.get())
 			{
 				// shutdown() ran before this reached the client thread.
-				return;
+				return true;
 			}
-			initialModIconsLength = client.getModIcons().length;
+
+			IndexedSprite[] modIcons = client.getModIcons();
+			if (modIcons == null)
+			{
+				return false;
+			}
+
+			initialModIconsLength = modIcons.length;
 			refreshTask = executor.scheduleAtFixedRate(this::fetchTeamData, 0, 5, TimeUnit.MINUTES);
+			return true;
 		});
 	}
 

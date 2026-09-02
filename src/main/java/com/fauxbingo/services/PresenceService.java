@@ -70,7 +70,17 @@ public class PresenceService
 		{
 			return;
 		}
-		heartbeatTask = executor.scheduleAtFixedRate(this::sendIfLoggedIn, HEARTBEAT_INTERVAL_MINS, HEARTBEAT_INTERVAL_MINS, TimeUnit.MINUTES);
+		// scheduleAtFixedRate stops rescheduling for good if a task throws, and logs nothing.
+		heartbeatTask = executor.scheduleAtFixedRate(() -> {
+			try
+			{
+				sendIfLoggedIn();
+			}
+			catch (Exception e)
+			{
+				log.warn("Presence heartbeat failed; keeping the schedule alive", e);
+			}
+		}, HEARTBEAT_INTERVAL_MINS, HEARTBEAT_INTERVAL_MINS, TimeUnit.MINUTES);
 	}
 
 	public void shutdown()
@@ -123,11 +133,20 @@ public class PresenceService
 	private void send(SeenRequestDto body)
 	{
 		String json = gson.toJson(body);
-		Request request = new Request.Builder()
-			.url(apiBaseUrl.get().replaceAll("/$", "") + SEEN_PATH)
-			.header("Authorization", "Bearer " + config.apiToken().trim())
-			.post(RequestBody.create(JSON, json))
-			.build();
+		Request request;
+		try
+		{
+			request = new Request.Builder()
+				.url(apiBaseUrl.get() + SEEN_PATH)
+				.header("Authorization", ApiConfigSanitizer.bearer(config.apiToken()))
+				.post(RequestBody.create(JSON, json))
+				.build();
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("Could not build the /v1/seen request; check the API token and base URL: {}", e.getMessage());
+			return;
+		}
 
 		okHttpClient.newCall(request).enqueue(new Callback()
 		{
@@ -169,6 +188,7 @@ public class PresenceService
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
+		return config.enableBingoApi() && !ApiConfigSanitizer.sanitize(config.apiToken()).isEmpty()
+			&& !apiBaseUrl.get().isEmpty();
 	}
 }

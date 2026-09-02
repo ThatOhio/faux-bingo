@@ -7,6 +7,7 @@ import com.fauxbingo.handlers.PetChatHandler;
 import com.fauxbingo.handlers.RaidLootHandler;
 import com.fauxbingo.handlers.ValuableDropHandler;
 import com.fauxbingo.overlay.TeamOverlay;
+import com.fauxbingo.services.ApiConfigSanitizer;
 import com.fauxbingo.services.DropCorrelationService;
 import com.fauxbingo.services.EventEnvelopeSink;
 import com.fauxbingo.services.EventsApiService;
@@ -116,6 +117,7 @@ public class FauxBingoPlugin extends Plugin
 	private XpTracker xpTracker;
 
 	private volatile boolean loginTriggered = false;
+	private String lastRejectedBaseUrl = null;
 
 	@Override
 	protected void startUp() throws Exception
@@ -324,8 +326,21 @@ public class FauxBingoPlugin extends Plugin
 	@Named(API_BASE_URL_KEY)
 	String provideApiBaseUrl(FauxBingoConfig config)
 	{
-		String configured = config.apiBaseUrl() != null ? config.apiBaseUrl().trim() : "";
-		return !configured.isEmpty() ? configured : DEFAULT_BINGO_API_BASE_URL;
+		String configured = config.apiBaseUrl();
+		if (ApiConfigSanitizer.sanitize(configured).isEmpty())
+		{
+			return DEFAULT_BINGO_API_BASE_URL;
+		}
+
+		// Not falling back to the default when the URL is unusable
+		String normalized = ApiConfigSanitizer.normalizeBaseUrl(configured);
+		if (normalized.isEmpty() && !configured.equals(lastRejectedBaseUrl))
+		{
+			lastRejectedBaseUrl = configured;
+			log.warn("API Base URL \"{}\" is not a usable http(s) URL, so the bingo API is disabled. "
+				+ "It needs the scheme, e.g. https://example.com", configured);
+		}
+		return normalized;
 	}
 
 	@Provides

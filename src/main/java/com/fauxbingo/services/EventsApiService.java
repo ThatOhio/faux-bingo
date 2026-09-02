@@ -106,7 +106,17 @@ public class EventsApiService implements EventEnvelopeSink
 	{
 		if (deathFlushTask == null || deathFlushTask.isCancelled())
 		{
-			deathFlushTask = executor.scheduleAtFixedRate(this::flushDeathQueueIfDue, 1, 1, TimeUnit.SECONDS);
+			// scheduleAtFixedRate stops rescheduling for good if a task throws, and logs nothing.
+			deathFlushTask = executor.scheduleAtFixedRate(() -> {
+				try
+				{
+					flushDeathQueueIfDue();
+				}
+				catch (Exception e)
+				{
+					log.warn("Death queue flush failed; keeping the schedule alive", e);
+				}
+			}, 1, 1, TimeUnit.SECONDS);
 		}
 	}
 
@@ -377,11 +387,22 @@ public class EventsApiService implements EventEnvelopeSink
 		}
 
 		String json = gson.toJson(envelopes);
-		Request request = new Request.Builder()
-			.url(apiBaseUrl.get().replaceAll("/$", "") + EVENTS_PATH)
-			.header("Authorization", "Bearer " + config.apiToken().trim())
-			.post(RequestBody.create(JSON, json))
-			.build();
+		Request request;
+		try
+		{
+			request = new Request.Builder()
+				.url(apiBaseUrl.get() + EVENTS_PATH)
+				.header("Authorization", ApiConfigSanitizer.bearer(config.apiToken()))
+				.post(RequestBody.create(JSON, json))
+				.build();
+		}
+		catch (RuntimeException e)
+		{
+			// Not retrying: a malformed token or URL will not fix itself on a timer.
+			log.warn("Could not build the /v1/events request, dropping batch of {}; check the API token "
+				+ "and base URL: {}", envelopes.size(), e.getMessage());
+			return;
+		}
 
 		okHttpClient.newCall(request).enqueue(new Callback()
 		{
@@ -438,7 +459,7 @@ public class EventsApiService implements EventEnvelopeSink
 			return;
 		}
 
-		HttpUrl url = HttpUrl.parse(apiBaseUrl.get().replaceAll("/$", "") + EVENTS_PATH + "/" + eventId + SCREENSHOT_PATH_SUFFIX);
+		HttpUrl url = HttpUrl.parse(apiBaseUrl.get() + EVENTS_PATH + "/" + eventId + SCREENSHOT_PATH_SUFFIX);
 		if (url == null)
 		{
 			return;
@@ -450,11 +471,20 @@ public class EventsApiService implements EventEnvelopeSink
 			.addFormDataPart("file", "screenshot.png", fileBody)
 			.build();
 
-		Request request = new Request.Builder()
-			.url(url)
-			.header("Authorization", "Bearer " + config.apiToken().trim())
-			.post(multipart)
-			.build();
+		Request request;
+		try
+		{
+			request = new Request.Builder()
+				.url(url)
+				.header("Authorization", ApiConfigSanitizer.bearer(config.apiToken()))
+				.post(multipart)
+				.build();
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("Could not build the screenshot upload request for event {}: {}", eventId, e.getMessage());
+			return;
+		}
 
 		okHttpClient.newCall(request).enqueue(new Callback()
 		{
@@ -494,6 +524,7 @@ public class EventsApiService implements EventEnvelopeSink
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
+		return config.enableBingoApi() && !ApiConfigSanitizer.sanitize(config.apiToken()).isEmpty()
+			&& !apiBaseUrl.get().isEmpty();
 	}
 }

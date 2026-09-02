@@ -74,7 +74,17 @@ public class MeService
 		{
 			return;
 		}
-		refreshTask = executor.scheduleAtFixedRate(this::periodicRefresh, REFRESH_INTERVAL_MINS, REFRESH_INTERVAL_MINS, TimeUnit.MINUTES);
+		// scheduleAtFixedRate stops rescheduling for good if a task throws, and logs nothing.
+		refreshTask = executor.scheduleAtFixedRate(() -> {
+			try
+			{
+				periodicRefresh();
+			}
+			catch (Exception e)
+			{
+				log.warn("Periodic /v1/me refresh failed; keeping the schedule alive", e);
+			}
+		}, REFRESH_INTERVAL_MINS, REFRESH_INTERVAL_MINS, TimeUnit.MINUTES);
 	}
 
 	public void shutdown()
@@ -164,7 +174,8 @@ public class MeService
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
+		return config.enableBingoApi() && !ApiConfigSanitizer.sanitize(config.apiToken()).isEmpty()
+			&& !apiBaseUrl.get().isEmpty();
 	}
 
 	private void periodicRefresh()
@@ -206,11 +217,21 @@ public class MeService
 			return;
 		}
 
-		Request request = new Request.Builder()
-			.url(apiBaseUrl.get().replaceAll("/$", "") + ME_PATH)
-			.header("Authorization", "Bearer " + config.apiToken().trim())
-			.get()
-			.build();
+		Request request;
+		try
+		{
+			request = new Request.Builder()
+				.url(apiBaseUrl.get() + ME_PATH)
+				.header("Authorization", ApiConfigSanitizer.bearer(config.apiToken()))
+				.get()
+				.build();
+		}
+		catch (RuntimeException e)
+		{
+			// An uncaught throw here lands in the ScheduledFuture and is never logged.
+			log.warn("Could not build the /v1/me request; check the API token and base URL: {}", e.getMessage());
+			return;
+		}
 
 		okHttpClient.newCall(request).enqueue(new Callback()
 		{

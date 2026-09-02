@@ -120,8 +120,8 @@ public class TeamIconService
 		try
 		{
 			Request request = new Request.Builder()
-				.url(apiBaseUrl.get().replaceAll("/$", "") + TEAMS_PATH)
-				.header("Authorization", "Bearer " + config.apiToken().trim())
+				.url(apiBaseUrl.get() + TEAMS_PATH)
+				.header("Authorization", ApiConfigSanitizer.bearer(config.apiToken()))
 				.build();
 
 			TeamsResponseDto parsed;
@@ -240,7 +240,7 @@ public class TeamIconService
 	 */
 	private HttpUrl iconUrl(String teamId)
 	{
-		HttpUrl base = HttpUrl.parse(apiBaseUrl.get().replaceAll("/$", ""));
+		HttpUrl base = HttpUrl.parse(apiBaseUrl.get());
 		if (base == null)
 		{
 			return null;
@@ -282,7 +282,7 @@ public class TeamIconService
 		Request request = new Request.Builder()
 			.url(url)
 			.cacheControl(CacheControl.FORCE_NETWORK)
-			.header("Authorization", "Bearer " + config.apiToken().trim())
+			.header("Authorization", ApiConfigSanitizer.bearer(config.apiToken()))
 			.build();
 
 		try (Response response = okHttpClient.newCall(request).execute())
@@ -434,6 +434,7 @@ public class TeamIconService
 
 	private boolean enabled()
 	{
-		return config.enableBingoApi() && config.apiToken() != null && !config.apiToken().trim().isEmpty() && !apiBaseUrl.get().isEmpty();
+		return config.enableBingoApi() && !ApiConfigSanitizer.sanitize(config.apiToken()).isEmpty()
+			&& !apiBaseUrl.get().isEmpty();
 	}
 }

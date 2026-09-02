@@ -182,4 +182,28 @@ public class MeServiceTest
 		assertEquals("http://api/v1/me", captor.getAllValues().get(0).url().toString());
 		assertEquals("http://other/v1/me", captor.getAllValues().get(1).url().toString());
 	}
+
+	/** A pasted token with a trailing U+00A0 used to throw out of doFetch instead of being sent. */
+	@Test
+	public void sendsSanitizedTokenWhenConfigValueHasHiddenCharacters() throws Exception
+	{
+		when(config.apiToken()).thenReturn("token123\u00a0");
+
+		meService.onLogin("Zezima");
+
+		ArgumentCaptor<Request> sent = ArgumentCaptor.forClass(Request.class);
+		verify(okHttpClient).newCall(sent.capture());
+		assertEquals("Bearer token123", sent.getValue().header("Authorization"));
+	}
+
+	/** A base URL OkHttp cannot build on must not take the service down with it. */
+	@Test
+	public void doesNotThrowOrCallWhenBaseUrlIsUnusable()
+	{
+		baseUrl = "bingo.example.com";
+
+		meService.onLogin("Zezima");
+
+		verify(okHttpClient, never()).newCall(any(Request.class));
+	}
 }

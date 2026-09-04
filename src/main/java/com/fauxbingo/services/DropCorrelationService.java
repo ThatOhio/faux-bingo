@@ -1,6 +1,7 @@
 package com.fauxbingo.services;
 
 import com.fauxbingo.services.data.Confidence;
+import com.fauxbingo.services.data.DetectionMethod;
 import com.fauxbingo.services.data.DropItem;
 import com.fauxbingo.services.data.DropSignal;
 import com.fauxbingo.services.data.DropType;
@@ -8,10 +9,13 @@ import com.fauxbingo.services.data.MergedDropEvent;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
@@ -92,10 +96,13 @@ public class DropCorrelationService
 	}
 
 	/**
-	 * Item-name/id intersection is the normal match. PET signals carry no item identity at all
-	 * (the game's pet message never names it), so they pair against the nearest unclaimed
-	 * COLLECTION_LOG signal instead - the only way the plugin ever learns a pet's name. That
-	 * pairing works regardless of which signal lands first.
+	 * Item-name/id intersection is the normal match, gated on quantity: a raid rolls its normal
+	 * reward table several times, so one chest of 110 Vials of blood arrives in chat as separate
+	 * "50 x" and "60 x" valuable drops that all belong to it.
+	 *
+	 * PET signals carry no item identity at all (the game's pet message never names it), so they
+	 * pair against the nearest unclaimed COLLECTION_LOG signal instead - the only way the plugin
+	 * ever learns a pet's name. That pairing works regardless of which signal lands first.
 	 */
 	private PendingGroup findMatchingGroup(DropSignal signal)
 	{
@@ -107,10 +114,12 @@ public class DropCorrelationService
 			return findGroup(g -> g.hasCollectionLog() && !g.hasPet());
 		}
 
-		Set<String> keys = itemKeys(signal);
-		if (!keys.isEmpty())
+		Map<String, Integer> quantities = itemQuantities(signal);
+		if (!quantities.isEmpty())
 		{
-			PendingGroup byItem = findGroup(g -> !disjoint(g.itemKeys(), keys));
+			PendingGroup byItem = signal.getDetectionMethod().getConfidence() == Confidence.EXACT
+				? absorbMatchingGroups(quantities)
+				: findGroupWithRoom(signal.getDetectionMethod(), quantities);
 			if (byItem != null)
 			{
 				return byItem;
@@ -125,6 +134,96 @@ public class DropCorrelationService
 		return null;
 	}
 
+	/**
+	 * A DERIVED signal needs an EXACT count to fit inside, so with no such group it stands alone:
+	 * two chat lines for one item are two drops until something authoritative says otherwise.
+	 */
+	private PendingGroup findGroupWithRoom(DetectionMethod method, Map<String, Integer> quantities)
+	{
+		for (PendingGroup group : pendingGroups)
+		{
+			Set<String> groupKeys = group.itemKeys();
+			boolean shared = false;
+			boolean fits = true;
+
+			for (Map.Entry<String, Integer> entry : quantities.entrySet())
+			{
+				if (!groupKeys.contains(entry.getKey()))
+				{
+					continue;
+				}
+				shared = true;
+
+				int capacity = group.capacityFor(entry.getKey());
+				if (capacity <= 0 || group.claimedFor(entry.getKey(), method) + entry.getValue() > capacity)
+				{
+					fits = false;
+					break;
+				}
+			}
+
+			if (shared && fits)
+			{
+				return group;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Claims every group this signal's items cover, not just the first: a chest arrives after
+	 * several chat lines that each became their own group. Stops folding groups in once they
+	 * exhaust the count for an item, so an unrelated drop of it isn't swallowed too.
+	 */
+	private PendingGroup absorbMatchingGroups(Map<String, Integer> quantities)
+	{
+		Map<String, Integer> remaining = new HashMap<>(quantities);
+		List<PendingGroup> absorbed = new ArrayList<>();
+
+		for (PendingGroup group : pendingGroups)
+		{
+			Set<String> shared = new HashSet<>(group.itemKeys());
+			shared.retainAll(remaining.keySet());
+			if (shared.isEmpty())
+			{
+				continue;
+			}
+
+			boolean fits = true;
+			for (String key : shared)
+			{
+				if (group.derivedDemand(key) > remaining.get(key))
+				{
+					fits = false;
+					break;
+				}
+			}
+			if (!fits)
+			{
+				continue;
+			}
+
+			for (String key : shared)
+			{
+				remaining.put(key, remaining.get(key) - group.derivedDemand(key));
+			}
+			absorbed.add(group);
+		}
+
+		if (absorbed.isEmpty())
+		{
+			return null;
+		}
+
+		PendingGroup host = absorbed.get(0);
+		for (PendingGroup other : absorbed.subList(1, absorbed.size()))
+		{
+			host.signals.addAll(other.signals);
+			pendingGroups.remove(other);
+		}
+		return host;
+	}
+
 	private PendingGroup findGroup(Predicate<PendingGroup> predicate)
 	{
 		for (PendingGroup group : pendingGroups)
@@ -137,38 +236,28 @@ public class DropCorrelationService
 		return null;
 	}
 
-	private static boolean disjoint(Set<String> a, Set<String> b)
+	/** Item key to the count this signal reports for it. */
+	private static Map<String, Integer> itemQuantities(DropSignal signal)
 	{
-		for (String key : a)
-		{
-			if (b.contains(key))
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
-	private static Set<String> itemKeys(DropSignal signal)
-	{
-		Set<String> keys = new HashSet<>();
+		Map<String, Integer> quantities = new HashMap<>();
 		if (signal.getItems() == null)
 		{
-			return keys;
+			return quantities;
 		}
 		for (DropItem item : signal.getItems())
 		{
+			int quantity = Math.max(item.getQuantity(), 0);
 			if (item.getId() != null)
 			{
-				keys.add("id:" + item.getId());
+				quantities.merge("id:" + item.getId(), quantity, Integer::sum);
 			}
 			String normalized = normalizeName(item.getName());
 			if (normalized != null)
 			{
-				keys.add("name:" + normalized);
+				quantities.merge("name:" + normalized, quantity, Integer::sum);
 			}
 		}
-		return keys;
+		return quantities;
 	}
 
 	/** Strips a chat-embedded quantity prefix like "30 x " so names line up across handlers. */
@@ -341,9 +430,70 @@ public class DropCorrelationService
 			Set<String> keys = new HashSet<>();
 			for (DropSignal signal : signals)
 			{
-				keys.addAll(DropCorrelationService.itemKeys(signal));
+				keys.addAll(itemQuantities(signal).keySet());
 			}
 			return keys;
+		}
+
+		/** The authoritative count DERIVED signals slot into. Zero if no EXACT signal covers the item. */
+		int capacityFor(String key)
+		{
+			int capacity = 0;
+			for (DropSignal signal : signals)
+			{
+				if (signal.getDetectionMethod().getConfidence() != Confidence.EXACT)
+				{
+					continue;
+				}
+				Integer quantity = itemQuantities(signal).get(key);
+				if (quantity != null)
+				{
+					capacity = Math.max(capacity, quantity);
+				}
+			}
+			return capacity;
+		}
+
+		/** How much of an item's capacity one detection method has already taken. */
+		int claimedFor(String key, DetectionMethod method)
+		{
+			int claimed = 0;
+			for (DropSignal signal : signals)
+			{
+				if (signal.getDetectionMethod() != method)
+				{
+					continue;
+				}
+				Integer quantity = itemQuantities(signal).get(key);
+				if (quantity != null)
+				{
+					claimed += quantity;
+				}
+			}
+			return claimed;
+		}
+
+		/**
+		 * Methods are compared rather than summed: a collection-log line and a valuable-drop line
+		 * describe the same item, while two valuable-drop lines are two separate rolls.
+		 */
+		int derivedDemand(String key)
+		{
+			Set<DetectionMethod> methods = EnumSet.noneOf(DetectionMethod.class);
+			for (DropSignal signal : signals)
+			{
+				if (signal.getDetectionMethod().getConfidence() != Confidence.EXACT)
+				{
+					methods.add(signal.getDetectionMethod());
+				}
+			}
+
+			int demand = 0;
+			for (DetectionMethod method : methods)
+			{
+				demand = Math.max(demand, claimedFor(key, method));
+			}
+			return demand;
 		}
 	}
 }

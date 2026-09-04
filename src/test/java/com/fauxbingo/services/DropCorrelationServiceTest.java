@@ -5,7 +5,9 @@ import com.fauxbingo.services.data.DropItem;
 import com.fauxbingo.services.data.DropSignal;
 import com.fauxbingo.services.data.MergedDropEvent;
 import java.awt.image.BufferedImage;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,6 +50,33 @@ public class DropCorrelationServiceTest
 			.items(Collections.singletonList(DropItem.builder().name(itemName).quantity(1).unitPriceGe(value).build()))
 			.totalValueGe(value)
 			.sourceName("Vorkath");
+	}
+
+	/** Mirrors ValuableDropHandler: chat-derived, so no itemId. */
+	private static DropSignal chatDrop(String itemName, int quantity, long value)
+	{
+		return DropSignal.builder()
+			.detectionMethod(DetectionMethod.CHAT_VALUABLE_DROP)
+			.items(Collections.singletonList(
+				DropItem.builder().name(itemName).quantity(quantity).unitPriceGe(value / quantity).build()))
+			.totalValueGe(value)
+			.build();
+	}
+
+	/** Mirrors RaidLootHandler: one EXACT signal carrying the chest's combined stacks. */
+	private static DropSignal chestDrop(DropItem... items)
+	{
+		return DropSignal.builder()
+			.detectionMethod(DetectionMethod.RAID_CHEST_CONTAINER)
+			.sourceName("Theatre of Blood")
+			.items(Arrays.asList(items))
+			.totalValueGe(1_000_000L)
+			.build();
+	}
+
+	private static DropItem chestItem(int id, String name, int quantity)
+	{
+		return DropItem.builder().id(id).name(name).quantity(quantity).unitPriceGe(1000L).build();
 	}
 
 	private MergedDropEvent captureMergedEvent()
@@ -167,5 +196,91 @@ public class DropCorrelationServiceTest
 
 		MergedDropEvent merged = captureMergedEvent();
 		assertEquals(exactImage, merged.getScreenshot());
+	}
+
+	/** Theatre of Blood rolls its normal table three times and the chest combines the stacks. */
+	@Test
+	public void repeatedChatRollsFoldIntoTheChestThatCombinesThem()
+	{
+		service.report(chatDrop("Vial of blood", 50, 500_000));
+		service.report(chatDrop("Vial of blood", 60, 600_000));
+		service.report(chestDrop(chestItem(22446, "Vial of blood", 110)));
+
+		service.shutdown();
+
+		MergedDropEvent merged = captureMergedEvent();
+		assertEquals(DetectionMethod.RAID_CHEST_CONTAINER, merged.getPrimarySignal().getDetectionMethod());
+		assertEquals(110, merged.getPrimarySignal().getItems().get(0).getQuantity());
+		assertEquals(3, merged.getContributingSignals().size());
+	}
+
+	/** The death rune line arriving first used to win the chest and strand the vial lines. */
+	@Test
+	public void chestAbsorbsEveryChatGroupItCoversNotJustTheFirst()
+	{
+		service.report(chatDrop("Death rune", 15, 300_000));
+		service.report(chatDrop("Vial of blood", 50, 500_000));
+		service.report(chatDrop("Vial of blood", 60, 600_000));
+		service.report(chestDrop(
+			chestItem(560, "Death rune", 15),
+			chestItem(22446, "Vial of blood", 110)));
+
+		service.shutdown();
+
+		MergedDropEvent merged = captureMergedEvent();
+		assertEquals(4, merged.getContributingSignals().size());
+	}
+
+	/** Two kills dropping the same item are two drops, with no chest to tie them together. */
+	@Test
+	public void repeatedChatRollsWithoutAChestStaySeparateEvents()
+	{
+		service.report(chatDrop("Rune scimitar", 1, 25_000));
+		service.report(chatDrop("Rune scimitar", 1, 25_000));
+
+		service.shutdown();
+
+		verify(envelopeSink, times(2)).accept(any());
+	}
+
+	/** A chat line beyond what the chest held belongs to some other drop. */
+	@Test
+	public void chatRollsBeyondTheChestCountAreLeftOut()
+	{
+		service.report(chatDrop("Vial of blood", 50, 500_000));
+		service.report(chatDrop("Vial of blood", 60, 600_000));
+		service.report(chatDrop("Vial of blood", 30, 300_000));
+		service.report(chestDrop(chestItem(22446, "Vial of blood", 110)));
+
+		service.shutdown();
+
+		ArgumentCaptor<MergedDropEvent> captor = ArgumentCaptor.forClass(MergedDropEvent.class);
+		verify(envelopeSink, times(2)).accept(captor.capture());
+
+		List<MergedDropEvent> events = captor.getAllValues();
+		MergedDropEvent chestEvent = events.get(0).getContributingSignals().size() == 3 ? events.get(0) : events.get(1);
+		MergedDropEvent leftover = chestEvent == events.get(0) ? events.get(1) : events.get(0);
+
+		assertEquals(3, chestEvent.getContributingSignals().size());
+		assertEquals(DetectionMethod.RAID_CHEST_CONTAINER, chestEvent.getPrimarySignal().getDetectionMethod());
+		assertEquals(1, leftover.getContributingSignals().size());
+		assertEquals(30, leftover.getPrimarySignal().getItems().get(0).getQuantity());
+	}
+
+	/** Both DERIVED lines describe the one item, so they must not compete for its single unit. */
+	@Test
+	public void collectionLogAndValuableDropForOneUniqueStillShareAGroup()
+	{
+		service.report(lootSignal(DetectionMethod.NPC_LOOT_RECEIVED, "Twisted bow", 1_000_000_000).build());
+		service.report(DropSignal.builder()
+			.detectionMethod(DetectionMethod.CHAT_COLLECTION_LOG)
+			.items(Collections.singletonList(DropItem.builder().name("Twisted bow").quantity(1).build()))
+			.build());
+		service.report(lootSignal(DetectionMethod.CHAT_VALUABLE_DROP, "Twisted bow", 1_000_000_000).build());
+
+		service.shutdown();
+
+		MergedDropEvent merged = captureMergedEvent();
+		assertEquals(3, merged.getContributingSignals().size());
 	}
 }

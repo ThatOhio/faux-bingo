@@ -2,6 +2,9 @@ package com.fauxbingo.services;
 
 import com.fauxbingo.FauxBingoConfig;
 import java.awt.image.BufferedImage;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -22,17 +25,23 @@ import net.runelite.client.ui.DrawManager;
 @RequiredArgsConstructor(onConstructor_ = @Inject)
 public class ScreenshotService
 {
+	private static final long CAPTURE_TIMEOUT_MS = 2_000;
+
 	private final Client client;
 	private final ClientThread clientThread;
 	private final DrawManager drawManager;
 	private final FauxBingoConfig config;
+	private final ScheduledExecutorService executor;
 
 	/**
 	 * Request a screenshot. Hides PM and/or main chat per config before capture, then unhides after.
-	 * The onImage callback receives the captured image, run any I/O (e.g. webhook) on a background executor.
-	 * Safe to call from any thread (e.g. AWT for hotkeys), hide/show and frame capture run on the client thread.
+	 * Safe to call from any thread, hide/show and frame capture run on the client thread.
 	 *
-	 * @param onImage consumer for the captured image, typically called from the frame listener
+	 * onImage is always called exactly once, with null if no frame arrived in time. Callers report
+	 * the drop either way: DrawManager drops its whole listener queue without a word when the client
+	 * cannot supply a frame, and a missing picture must not cost the event as well.
+	 *
+	 * @param onImage consumer for the captured image, null when the capture failed
 	 */
 	public void requestScreenshot(Consumer<BufferedImage> onImage)
 	{
@@ -42,20 +51,29 @@ public class ScreenshotService
 		clientThread.invokeLater(() -> {
 			boolean pmHidden = hideWidget(hidePm, InterfaceID.PmChat.CONTAINER);
 			boolean chatHidden = hideWidget(hideChat, InterfaceID.Chatbox.CHATAREA);
+			AtomicBoolean delivered = new AtomicBoolean();
 
-			drawManager.requestNextFrameListener(image -> {
-				BufferedImage buffered = image instanceof BufferedImage ? (BufferedImage) image : null;
-				if (buffered != null)
-				{
-					onImage.accept(buffered);
-				}
-				else
-				{
-					log.warn("DrawManager did not provide a BufferedImage. Skipping screenshot callback.");
-				}
-
+			Runnable restore = () -> {
 				unhideWidget(pmHidden, InterfaceID.PmChat.CONTAINER);
 				unhideWidget(chatHidden, InterfaceID.Chatbox.CHATAREA);
+			};
+
+			executor.schedule(() -> {
+				if (delivered.compareAndSet(false, true))
+				{
+					log.debug("No frame within {}ms, reporting the drop without a screenshot", CAPTURE_TIMEOUT_MS);
+					restore.run();
+					onImage.accept(null);
+				}
+			}, CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+
+			drawManager.requestNextFrameListener(image -> {
+				if (!delivered.compareAndSet(false, true))
+				{
+					return;
+				}
+				restore.run();
+				onImage.accept(image instanceof BufferedImage ? (BufferedImage) image : null);
 			});
 		});
 	}

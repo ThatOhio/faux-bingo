@@ -330,6 +330,11 @@ public class DropCorrelationService
 			petName = clogSignal.getItems().get(0).getName();
 		}
 
+		// A capture can fail per signal, so fall back rather than let the primary's miss decide it.
+		DropSignal withScreenshot = primary.getScreenshot() != null
+			? primary
+			: findFirst(signals, s -> s.getScreenshot() != null);
+
 		Long corroboratedValue = null;
 		if (primary.getTotalValueGe() == null || primary.getTotalValueGe() == 0)
 		{
@@ -351,7 +356,7 @@ public class DropCorrelationService
 			.petName(petName)
 			.sourceNameGuess(sourceNameGuess)
 			.corroboratedValueGe(corroboratedValue)
-			.screenshot(primary.getScreenshot())
+			.screenshot(withScreenshot != null ? withScreenshot.getScreenshot() : null)
 			.build();
 	}
 

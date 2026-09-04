@@ -12,16 +12,19 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.concurrent.ScheduledExecutorService;
 import net.runelite.api.Client;
 import net.runelite.api.Player;
 import net.runelite.api.WorldType;
+import javax.imageio.ImageIO;
 import net.runelite.api.vars.AccountType;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
 import okhttp3.Request;
@@ -230,6 +233,54 @@ public class EventsApiServiceTest
 			.anyMatch(req -> req.url().toString().endsWith("/v1/events"));
 		assertTrue(sawScreenshotUpload);
 		assertTrue(sawEventsPost);
+	}
+
+	@Test
+	public void screenshotUploadRetriesOnServerError() throws Exception
+	{
+		Call uploadCall = mock(Call.class);
+		Call eventsCall = mock(Call.class);
+		Call retryCall = mock(Call.class);
+		when(okHttpClient.newCall(any(Request.class))).thenReturn(uploadCall, eventsCall, retryCall);
+
+		MergedDropEvent merged = lootEvent();
+		merged.setScreenshot(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB));
+		service.accept(merged);
+
+		captureCallback(uploadCall).onResponse(uploadCall, response(500, ""));
+
+		ArgumentCaptor<Request> captor = ArgumentCaptor.forClass(Request.class);
+		verify(okHttpClient, times(3)).newCall(captor.capture());
+		assertTrue(captor.getAllValues().get(2).url().toString().endsWith("/screenshot"));
+	}
+
+	/** The cap and the bounds are the server's, so they hold whatever the player's client is set to. */
+	@Test
+	public void oversizedScreenshotIsScaledDownAndSentAsJpeg() throws Exception
+	{
+		Call call = mock(Call.class);
+		when(okHttpClient.newCall(any(Request.class))).thenReturn(call);
+
+		MergedDropEvent merged = lootEvent();
+		merged.setScreenshot(new BufferedImage(3840, 2160, BufferedImage.TYPE_INT_ARGB));
+		service.accept(merged);
+
+		ArgumentCaptor<Request> captor = ArgumentCaptor.forClass(Request.class);
+		verify(okHttpClient, atLeastOnce()).newCall(captor.capture());
+		Request upload = captor.getAllValues().stream()
+			.filter(req -> req.url().toString().endsWith("/screenshot"))
+			.findFirst()
+			.orElseThrow(AssertionError::new);
+
+		MultipartBody body = (MultipartBody) upload.body();
+		assertEquals("image/jpeg", body.part(0).body().contentType().toString());
+		assertTrue(body.contentLength() <= 5 * 1024 * 1024);
+
+		Buffer buffer = new Buffer();
+		body.part(0).body().writeTo(buffer);
+		BufferedImage sent = ImageIO.read(new ByteArrayInputStream(buffer.readByteArray()));
+		assertEquals(2560, sent.getWidth());
+		assertEquals(1440, sent.getHeight());
 	}
 
 	private Callback captureCallback(Call call)

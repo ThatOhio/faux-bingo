@@ -18,12 +18,15 @@ import com.fauxbingo.services.data.MergedDropEvent;
 import com.fauxbingo.services.data.PetPayloadDto;
 import com.fauxbingo.services.data.ScreenshotFlagDto;
 import com.google.gson.Gson;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
@@ -31,7 +34,11 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Provider;
@@ -60,13 +67,15 @@ import okhttp3.Response;
  * and never carries a per-event verdict, so there's nothing to wait on before uploading evidence.
  * eventId is generated here, client-side, before the envelope is even built, so a captured
  * screenshot uploads immediately in parallel with the batch send rather than waiting on its
- * response.
+ * response. That upload retries on its own ladder - it is the only copy of an image nobody can
+ * retake, and the event it belongs to has already landed without it.
  */
 @Slf4j
 @Singleton
 public class EventsApiService implements EventEnvelopeSink
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+	private static final MediaType JPEG = MediaType.parse("image/jpeg");
 	private static final String EVENTS_PATH = "/v1/events";
 	private static final String SCREENSHOT_PATH_SUFFIX = "/screenshot";
 	private static final int SCHEMA_VERSION = 1;
@@ -74,6 +83,15 @@ public class EventsApiService implements EventEnvelopeSink
 	private static final long MAX_RETRY_DELAY_MS = 60_000;
 	private static final long DEATH_BATCH_FLUSH_MS = 5_000;
 	private static final int DEATH_BATCH_MAX_SIZE = 50;
+
+	// The server caps an upload at 5MB and re-encodes anything larger than 2560x1440 down to it,
+	// so sending more than this is bytes the site was going to throw away - paid for on the
+	// player's upstream, where a 4K or HiDPI client's lossless PNG was blowing the cap outright.
+	private static final int MAX_SCREENSHOT_WIDTH = 2560;
+	private static final int MAX_SCREENSHOT_HEIGHT = 1440;
+	private static final int MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+	private static final float[] SCREENSHOT_QUALITY = {0.85f, 0.65f, 0.45f};
+	private static final int SCREENSHOT_MAX_ATTEMPTS = 6;
 
 	private final Client client;
 	private final FauxBingoConfig config;
@@ -453,8 +471,16 @@ public class EventsApiService implements EventEnvelopeSink
 
 	private void uploadScreenshot(String eventId, BufferedImage image)
 	{
-		byte[] bytes = toPngBytes(image);
-		if (bytes == null)
+		byte[] bytes = encodeScreenshot(image);
+		if (bytes != null)
+		{
+			sendScreenshot(eventId, bytes, INITIAL_RETRY_DELAY_MS, 1);
+		}
+	}
+
+	private void sendScreenshot(String eventId, byte[] bytes, long nextRetryDelayMs, int attempt)
+	{
+		if (!enabled())
 		{
 			return;
 		}
@@ -465,10 +491,9 @@ public class EventsApiService implements EventEnvelopeSink
 			return;
 		}
 
-		RequestBody fileBody = RequestBody.create(MediaType.parse("image/png"), bytes);
 		MultipartBody multipart = new MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
-			.addFormDataPart("file", "screenshot.png", fileBody)
+			.addFormDataPart("file", "screenshot.jpg", RequestBody.create(JPEG, bytes))
 			.build();
 
 		Request request;
@@ -491,34 +516,114 @@ public class EventsApiService implements EventEnvelopeSink
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
-				log.debug("Screenshot upload for {} failed: {}", eventId, e.getMessage());
+				retryScreenshot(eventId, bytes, nextRetryDelayMs, attempt, e.getMessage());
 			}
 
 			@Override
-			public void onResponse(Call call, Response response) throws IOException
+			public void onResponse(Call call, Response response)
 			{
-				// Upload failures are terminal per the contract, never retried: the event is
-				// already recorded, a lost screenshot only costs its evidence.
-				if (!response.isSuccessful())
+				try
 				{
-					log.debug("Screenshot upload for {} returned {}: {}", eventId, response.code(), response.message());
+					int code = response.code();
+					if (code >= 500)
+					{
+						retryScreenshot(eventId, bytes, nextRetryDelayMs, attempt, "HTTP " + code);
+					}
+					else if (!response.isSuccessful())
+					{
+						log.warn("Screenshot upload for {} returned {}: {}. Dropping it.", eventId, code, response.message());
+					}
 				}
-				response.close();
+				finally
+				{
+					response.close();
+				}
 			}
 		});
 	}
 
-	private byte[] toPngBytes(BufferedImage image)
+	/**
+	 * Bounded, unlike the event batch's retry: this holds the encoded image until it succeeds, and
+	 * a client that stays offline through a raid would otherwise accumulate every capture.
+	 */
+	private void retryScreenshot(String eventId, byte[] bytes, long delayMs, int attempt, String cause)
 	{
-		try (ByteArrayOutputStream out = new ByteArrayOutputStream())
+		if (attempt >= SCREENSHOT_MAX_ATTEMPTS)
 		{
-			ImageIO.write(image, "png", out);
+			log.warn("Screenshot upload for {} failed {} times ({}), giving up.", eventId, attempt, cause);
+			return;
+		}
+		log.debug("Screenshot upload for {} failed ({}), retrying in {}ms", eventId, cause, delayMs);
+		executor.schedule(() -> sendScreenshot(eventId, bytes, Math.min(MAX_RETRY_DELAY_MS, delayMs * 2), attempt + 1),
+			delayMs, TimeUnit.MILLISECONDS);
+	}
+
+	private byte[] encodeScreenshot(BufferedImage image)
+	{
+		BufferedImage scaled = scaleToFit(image);
+		for (float quality : SCREENSHOT_QUALITY)
+		{
+			byte[] bytes = toJpegBytes(scaled, quality);
+			if (bytes == null)
+			{
+				return null;
+			}
+			if (bytes.length <= MAX_SCREENSHOT_BYTES)
+			{
+				return bytes;
+			}
+		}
+		log.warn("Screenshot still over {} bytes at the lowest quality, dropping it", MAX_SCREENSHOT_BYTES);
+		return null;
+	}
+
+	private static BufferedImage scaleToFit(BufferedImage image)
+	{
+		double factor = Math.min(
+			MAX_SCREENSHOT_WIDTH / (double) image.getWidth(),
+			MAX_SCREENSHOT_HEIGHT / (double) image.getHeight());
+		int width = factor < 1 ? (int) Math.round(image.getWidth() * factor) : image.getWidth();
+		int height = factor < 1 ? (int) Math.round(image.getHeight() * factor) : image.getHeight();
+
+		// Redrawn even at native size: JPEG cannot carry the alpha channel some capture paths hand
+		// back, and TYPE_INT_RGB is what the writer wants.
+		BufferedImage out = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		Graphics2D graphics = out.createGraphics();
+		graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		graphics.drawImage(image, 0, 0, width, height, null);
+		graphics.dispose();
+		return out;
+	}
+
+	private byte[] toJpegBytes(BufferedImage image, float quality)
+	{
+		Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
+		if (!writers.hasNext())
+		{
+			log.warn("No JPEG writer available, dropping screenshot");
+			return null;
+		}
+
+		ImageWriter writer = writers.next();
+		try (ByteArrayOutputStream out = new ByteArrayOutputStream();
+			ImageOutputStream stream = ImageIO.createImageOutputStream(out))
+		{
+			ImageWriteParam param = writer.getDefaultWriteParam();
+			param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+			param.setCompressionQuality(quality);
+			writer.setOutput(stream);
+			writer.write(null, new IIOImage(image, null, null), param);
+			stream.flush();
 			return out.toByteArray();
 		}
 		catch (IOException e)
 		{
-			log.debug("Failed to encode screenshot", e);
+			log.warn("Failed to encode screenshot", e);
 			return null;
+		}
+		finally
+		{
+			writer.dispose();
 		}
 	}
 

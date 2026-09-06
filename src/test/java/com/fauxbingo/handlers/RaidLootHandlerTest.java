@@ -10,12 +10,14 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Collectors;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Player;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.client.game.ItemManager;
 import org.junit.Before;
@@ -297,5 +299,73 @@ public class RaidLootHandlerTest
 		DropSignal signal = captureSignal();
 		org.junit.Assert.assertEquals("Chambers of Xeric", signal.getSourceName());
 		org.junit.Assert.assertEquals("Twisted bow", signal.getItems().get(0).getName());
+	}
+
+	/**
+	 * Regression test for the double-report bug: the reward interface reloading for the *same*
+	 * chest (e.g. the player finally interacting with it long after the loot screen first
+	 * populated) must not re-arm the latch. Only a real instance boundary may do that.
+	 */
+	@Test
+	public void testWidgetReloadWithoutInstanceChangeDoesNotDoubleReport()
+	{
+		ChatMessage kcEvent = new ChatMessage();
+		kcEvent.setType(ChatMessageType.GAMEMESSAGE);
+		kcEvent.setMessage("Your completed Chambers of Xeric count is: 100.");
+		raidLootHandler.onChatMessage(kcEvent);
+
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(20997, 1)});
+		when(itemManager.getItemComposition(20997)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Twisted bow");
+
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.onItemContainerChanged(containerEvent);
+
+		// Player is still standing in the same instance, but the reward interface reloads (e.g.
+		// they finally click through it). isInInstancedRegion() hasn't changed, so this must be a
+		// no-op for the latch.
+		when(client.isInInstancedRegion()).thenReturn(false);
+		GameStateChanged reload = new GameStateChanged();
+		reload.setGameState(GameState.LOADING);
+		raidLootHandler.onGameStateChanged(reload);
+
+		// The same, unchanged container reports again.
+		raidLootHandler.onItemContainerChanged(containerEvent);
+
+		verify(dropCorrelationService, times(1)).report(any());
+	}
+
+	/** A genuine instance boundary must still re-arm the latch for the next raid's loot. */
+	@Test
+	public void testNewRaidAfterLeavingInstanceIsReportedAgain()
+	{
+		when(itemContainer.getItems()).thenReturn(new Item[]{new Item(20997, 1)});
+		when(itemManager.getItemComposition(20997)).thenReturn(itemComposition);
+		when(itemComposition.getName()).thenReturn("Twisted bow");
+
+		// Enter the raid instance.
+		when(client.isInInstancedRegion()).thenReturn(true);
+		GameStateChanged enter = new GameStateChanged();
+		enter.setGameState(GameState.LOADING);
+		raidLootHandler.onGameStateChanged(enter);
+
+		ItemContainerChanged containerEvent = new ItemContainerChanged(581, itemContainer);
+		raidLootHandler.onItemContainerChanged(containerEvent);
+
+		// Leave the instance after collecting loot.
+		when(client.isInInstancedRegion()).thenReturn(false);
+		GameStateChanged leave = new GameStateChanged();
+		leave.setGameState(GameState.LOADING);
+		raidLootHandler.onGameStateChanged(leave);
+
+		// Enter a second raid instance and get a fresh chest.
+		when(client.isInInstancedRegion()).thenReturn(true);
+		GameStateChanged enterAgain = new GameStateChanged();
+		enterAgain.setGameState(GameState.LOADING);
+		raidLootHandler.onGameStateChanged(enterAgain);
+
+		raidLootHandler.onItemContainerChanged(containerEvent);
+
+		verify(dropCorrelationService, times(2)).report(any());
 	}
 }

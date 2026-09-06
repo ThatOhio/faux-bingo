@@ -18,12 +18,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ItemContainerChanged;
-import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
@@ -35,6 +36,15 @@ import net.runelite.client.util.Text;
  * DropSignal per chest - the chat rare/KC assembly happens here because its own timing (chat
  * line to chest open can be many seconds) doesn't fit DropCorrelationService's shorter
  * cross-handler window.
+ *
+ * The `raidProcessed` latch used to re-arm itself after 60s of inactivity, on the theory that a
+ * widget reload after a long gap meant a new attempt. It doesn't: the reward interface can
+ * reload for the *same* chest while the player is still standing in front of it (e.g. only
+ * getting round to opening it long after the loot screen first populated), which re-armed the
+ * latch and let the next ItemContainerChanged for that same, unchanged container report the
+ * identical loot a second time. The bundled LootTrackerPlugin's `chestLooted` latch never has
+ * this problem because it only resets on a real boundary - entering or leaving an instanced
+ * region - so that's what this mirrors instead of a timer.
  */
 @Slf4j
 @Singleton
@@ -78,7 +88,7 @@ public class RaidLootHandler
 	private Integer raidKc;
 	private final List<String> rareDrops = new ArrayList<>();
 	private boolean raidProcessed = false;
-	private long lastProcessedTime = 0;
+	private boolean inInstancedRegion = false;
 
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
@@ -95,13 +105,17 @@ public class RaidLootHandler
 	}
 
 	@Subscribe
-	public void onWidgetLoaded(WidgetLoaded event)
+	public void onGameStateChanged(GameStateChanged event)
 	{
-		int groupId = event.getGroupId();
-
-		if (groupId == CoX_Interface_Id || groupId == ToB_Interface_Id || groupId == ToA_Interface_Id)
+		// Mirrors LootTrackerPlugin's `chestLooted` reset: the latch only re-arms on a genuine
+		// boundary (entering or leaving an instance), never on elapsed time, so a chest the player
+		// is still standing in front of can't be reported twice just because they took a while to
+		// open it.
+		boolean nowInInstancedRegion = client.isInInstancedRegion();
+		if (event.getGameState() == GameState.LOADING && nowInInstancedRegion != inInstancedRegion)
 		{
-			handleRaidRewardWidget();
+			inInstancedRegion = nowInInstancedRegion;
+			raidProcessed = false;
 		}
 	}
 
@@ -233,16 +247,6 @@ public class RaidLootHandler
 		}
 	}
 
-	private void handleRaidRewardWidget()
-	{
-		// Widget loading is a good signal that we're looking at loot.
-		// If we haven't processed for a while, we can assume it's a new attempt.
-		if (System.currentTimeMillis() - lastProcessedTime > 60000)
-		{
-			raidProcessed = false;
-		}
-	}
-
 	private void handleRaidInventory(int containerId, ItemContainer itemContainer)
 	{
 		if (itemContainer == null || raidProcessed)
@@ -273,7 +277,6 @@ public class RaidLootHandler
 			rareDrops.clear();
 		}
 		raidProcessed = true;
-		lastProcessedTime = System.currentTimeMillis();
 	}
 
 	private void processRaidLoot(String raidName, ItemContainer itemContainer)
